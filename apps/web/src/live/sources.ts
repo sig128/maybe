@@ -480,18 +480,32 @@ async function slot<T>(f: () => Promise<T>): Promise<T> {
 
 const metaCache = new Map<string, Promise<TokenMeta | null>>();
 
+/** Metadata hosts that refused a browser fetch (no CORS, or down): not asked again this visit. */
+const refusingHosts = new Set<string>();
+
 export function fetchMeta(uri: string | undefined): Promise<TokenMeta | null> {
   if (!uri || !/^https?:|^ipfs:/.test(uri)) return Promise.resolve(null);
   const hit = metaCache.get(uri);
   if (hit) return hit;
+  const url = ipfsUrl(uri)!;
+  let host = "";
+  try {
+    host = new URL(url).host;
+  } catch {
+    return Promise.resolve(null);
+  }
+  // many launch tools host metadata without CORS; Jupiter supplies the icon and links for those
+  if (refusingHosts.has(host)) return Promise.resolve(null);
   const p = slot(async () => {
     try {
-      const res = await fetch(ipfsUrl(uri)!, { signal: AbortSignal.timeout(5000) });
+      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
       if (!res.ok) return null;
       const j = (await res.json()) as Record<string, unknown>;
       const str = (k: string) => (typeof j[k] === "string" && (j[k] as string).trim() ? (j[k] as string).trim() : undefined);
       return { image: ipfsUrl(str("image")), description: str("description")?.slice(0, 400), twitter: str("twitter"), telegram: str("telegram"), website: str("website") };
-    } catch {
+    } catch (e) {
+      // a network-level refusal (CORS, DNS) is a TypeError; a slow gateway just times out and may answer next time
+      if (e instanceof TypeError && !host.endsWith("filebase.io")) refusingHosts.add(host);
       return null;
     }
   });

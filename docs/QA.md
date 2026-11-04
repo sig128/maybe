@@ -52,6 +52,14 @@ The same scenarios on the unminified dev server ran 2–3× slower (worst input 
 - At 1024 px the builder stacked the graph and the inspector as two half-height scroll areas, leaving the graph a 250 px slot. Stacked layouts now scroll as one page, the graph keeps its full height, and the overview map (which covered the last steps) is hidden there. On a phone, a graph too wide to read when fitted opens at the top-left instead of floating mid-canvas.
 - The suite's graph and list screenshots were taken before the view switch landed (it runs inside a router transition), so both showed the graph. The test now waits for the selected tab and the view's content.
 
+## Odds: live checks against mainnet
+
+The published board was exercised in a real browser on 2026-11-04 with live Solana mainnet data, at 1440×900 and at phone size (375×812). Automated coverage of the page itself is in `e2e/odds.spec.ts` (layout at three sizes, axe, persistence); the math and decoding are in `src/live/live.test.ts`.
+
+Checked live: launches stream in (4–15 a minute during the checks); all three columns fill on load from the seed lists; bonding-curve progress and market caps move with trades; graduated rows take their market cap from the PumpSwap pool; a practice Yes on a price question, its value in the positions drawer, selling it back at the bid, and resetting the practice balance; the token drawer's chart, curve bar, question card and stats; the phone layout with full-width Yes/No buttons.
+
+Found live and fixed (each with a commit): PublicNode refuses account reads of more than 10 accounts (the seed silently failed); Jupiter's rate limit hit on reload left columns empty until each seed list was made independent and retried; launches with non-standard reserves showed nonsense odds until curves were validated; Jupiter's price runs a few percent off a pool's spot, so strikes and live values now share one source; PumpPortal's migration stream includes pools that aren't graduations, so graduation now needs the curve's own `complete` flag; the drawer chart drew a 1% move like a crash.
+
 ## Not checked
 
 - Screen-reader output with a real screen reader (VoiceOver / NVDA); naming was checked with axe and Playwright's accessibility tree only.
