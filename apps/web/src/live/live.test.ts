@@ -194,6 +194,33 @@ describe("practice ledger", () => {
     expect(p.positions.filter((x) => x.status === "lost")).toHaveLength(1);
   });
 
+  it("a migration event settles a graduation question only once the curve itself says complete", async () => {
+    const { e, i, m } = engine();
+    const curve = (complete: boolean) => {
+      const d = new Uint8Array(151);
+      d.set(u64(279_900_000n * 1_000_000n), 8);
+      d.set(u64(115_000_000_000n), 16);
+      d[48] = complete ? 1 : 0;
+      return d;
+    };
+    i.addToken({ mint: "M2", symbol: "BBB", name: "B", createdAt: Date.now(), seenAt: Date.now(), source: "launch", stage: "new", stageAt: Date.now(), curveKey: "CURVE2" });
+    const m2 = i.openMarket("M2", "grad-1h", Date.now(), Date.now() + 3_600_000)!;
+    const rpc = e.rpc as unknown as { accounts(a: string[]): Promise<Map<string, Uint8Array | null>> };
+    // a pool someone created on PumpSwap while the curve is still open: no graduation
+    rpc.accounts = async (a) => new Map(a.map((k) => [k, k === "CURVE2" ? curve(false) : null]));
+    await (e as unknown as { confirmGraduation(mint: string, at: number): Promise<void> }).confirmGraduation("M2", Date.now());
+    expect(e.getMarket(m2.id)!.status).toBe("open");
+    // the curve completes: now it's a graduation, and the question settles yes
+    rpc.accounts = async (a) => new Map(a.map((k) => [k, k === "CURVE2" ? curve(true) : null]));
+    await (e as unknown as { confirmGraduation(mint: string, at: number): Promise<void> }).confirmGraduation("M2", Date.now());
+    expect(e.getMarket(m2.id)!.status).toBe("yes");
+    expect(e.getToken("M2")!.stage).toBe("graduated");
+    expect(e.getMarket(m.id)!.status).toBe("open");
+    // an unknown token whose curve isn't complete never joins the board
+    await (e as unknown as { confirmGraduation(mint: string, at: number): Promise<void> }).confirmGraduation("9QDHncKKFsqVzvmsP67yDBxUBS9xqf8Qu9Koj5ZQNazt", Date.now());
+    expect(e.getToken("9QDHncKKFsqVzvmsP67yDBxUBS9xqf8Qu9Koj5ZQNazt")).toBeUndefined();
+  });
+
   it("refuses more than the balance, a closed question, and returns stakes on a void", () => {
     const { e, i, m } = engine();
     expect(e.buy(m.id, "YES", 1e6)).toMatchObject({ ok: false });

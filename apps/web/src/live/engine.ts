@@ -364,17 +364,31 @@ export class LiveEngine {
   }
 
   private onMigrate(e: MigrationEvent): void {
-    const now = Date.now();
-    const t = this.tokens.get(e.mint);
-    if (!t) {
-      // a graduation we didn't watch launch: show it, and let Jupiter fill in the rest
-      this.addToken({ mint: e.mint, symbol: short(e.mint), name: "…", createdAt: now, seenAt: now, source: "migration", stage: "graduated", stageAt: now, graduatedAt: now });
-      this.visible.add(e.mint);
-      void this.enrich([e.mint]);
-    } else {
-      this.graduate(e.mint, now);
+    void this.confirmGraduation(e.mint, Date.now());
+  }
+
+  /**
+   * A migration event is only a hint: pools get created on PumpSwap in other ways too. The bonding
+   * curve's own complete flag decides, read from the chain, before anything is called a graduation.
+   */
+  private async confirmGraduation(mint: string, at: number): Promise<void> {
+    const t = this.tokens.get(mint);
+    if (t?.stage === "graduated") return;
+    try {
+      const key = t?.curveKey ?? (await bondingCurveAddress(mint));
+      const data = (await this.rpc.accounts([key])).get(key);
+      const c = data ? decodeCurve(data) : null;
+      if (!c?.complete) return; // not a bonding-curve graduation
+      if (!this.tokens.get(mint)) {
+        // a graduation we didn't watch launch: show it, and let Jupiter fill in the rest
+        this.addToken({ mint, symbol: short(mint), name: "…", createdAt: at, seenAt: Date.now(), source: "migration", stage: "graduated", stageAt: at, graduatedAt: at, progress: 1 });
+        this.visible.add(mint);
+        void this.enrich([mint]);
+      } else this.graduate(mint, at);
+      this.trim();
+    } catch {
+      // unconfirmed: a watched curve still reports its own completion
     }
-    this.trim();
   }
 
   private graduate(mint: string, at: number): void {
@@ -632,9 +646,12 @@ export class LiveEngine {
       this.setMcap(x.id, x.mcap / sol);
     } else this.put(x.id, patch);
     if (x.graduatedPool) {
-      if (t.stage !== "graduated") this.graduate(x.id, ms(x.graduatedAt) || now);
-      void this.watchPool(x.id, x.graduatedPool, x.decimals ?? 6, x.totalSupply ?? Number(TOTAL_SUPPLY_UNITS / 1_000_000n));
-      this.openAboveIfReady(x.id);
+      // graduation questions settle on the curve's own flag, so Jupiter's word is checked on-chain first
+      if (t.stage !== "graduated") void this.confirmGraduation(x.id, ms(x.graduatedAt) || now);
+      else {
+        void this.watchPool(x.id, x.graduatedPool, x.decimals ?? 6, x.totalSupply ?? Number(TOTAL_SUPPLY_UNITS / 1_000_000n));
+        this.openAboveIfReady(x.id);
+      }
     }
   }
 

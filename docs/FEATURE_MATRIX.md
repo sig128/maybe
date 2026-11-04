@@ -2,7 +2,7 @@
 
 Status as of 2026-11-04. **Implemented & tested** means exercised by an automated test listed in the last column. **Local only** means it works against the local validator with development keys or test venues and needs production counterparts. **Externally blocked** names the exact missing requirement. **Deferred** is a deliberate scope cut.
 
-Test suites: `core` (110), `agent` (11), `sdk` (18: 6 unit + 12 on a live validator), Rust `maybe-logic` (11) + `maybe-vault` layout (1), `server` (19, Postgres), `web` (20: 4 app + 16 live board), browser (Playwright, `apps/web/e2e`), end to end (`pnpm e2e:chain`, `docs/evidence/e2e-chain.md`).
+Test suites: `core` (110), `agent` (11), `sdk` (18: 6 unit + 12 on a live validator), Rust `maybe-logic` (11) + `maybe-vault` layout (1), `server` (19, Postgres), `web` (21: 4 app + 17 live board), browser (Playwright, `apps/web/e2e`), end to end (`pnpm e2e:chain`, `docs/evidence/e2e-chain.md`).
 
 ## Strategy language and engine
 
@@ -86,7 +86,7 @@ Verified against Solana mainnet in a real browser on the published site; automat
 | Only standard SOL curves listed (constant product and virtual offset checked; other launch configurations left out) | Implemented & tested | web unit |
 | Token stats, socials and icons (Jupiter, rate limited with retry); metadata over an IPFS gateway browsers can read | Implemented; verified live | published site |
 | Questions per stage and the live line (first-passage model of SOL flow, lognormal price model, 4¢ spread) | Implemented & tested | web unit (model properties) |
-| Practice positions: buy at the line, sell back at the bid, settle on the chain (curve filled, or market cap at the close), void without a fresh price | Implemented & tested | web unit (ledger) |
+| Practice positions: buy at the line, sell back at the bid, settle on the chain (curve `complete` flag; pool spot price read at the close), void without a current price | Implemented & tested | web unit (ledger, graduation confirmation) |
 | Board UI: three virtualized columns, holds still while pointed at, touched or scrolled; token drawer; positions; phone layout | Implemented & tested | browser (`e2e/odds.spec.ts`: layout at 3 sizes, axe WCAG 2.2 AA, persistence) |
 | Public site (board only, CSP, no wallet, static hosting) | Implemented; published | `scripts/deploy-pages.sh`, browser |
 | Real-money questions | Deferred | an audited on-chain market program, a license, and a production resolution source |
