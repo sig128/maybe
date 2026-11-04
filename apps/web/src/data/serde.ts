@@ -1,24 +1,7 @@
-/** JSON with lossless bigint and Uint8Array, for simulation persistence. */
+import { parse, stringify } from "@maybe/api";
 
-export function stringify(value: unknown): string {
-  return JSON.stringify(value, (_k, v) => {
-    if (typeof v === "bigint") return { $b: v.toString() };
-    if (v instanceof Uint8Array) return { $u8: Array.from(v) };
-    if (v === Number.POSITIVE_INFINITY) return { $inf: 1 };
-    return v;
-  });
-}
-
-export function parse<T>(text: string): T {
-  return JSON.parse(text, (_k, v) => {
-    if (v && typeof v === "object") {
-      if ("$b" in v && Object.keys(v).length === 1) return BigInt(v.$b);
-      if ("$u8" in v && Object.keys(v).length === 1) return new Uint8Array(v.$u8);
-      if ("$inf" in v && Object.keys(v).length === 1) return Number.POSITIVE_INFINITY;
-    }
-    return v;
-  }) as T;
-}
+/** Wire format lives in @maybe/api; this adds storage helpers for the simulation. */
+export { parse, stringify };
 
 export function safeLoad<T>(key: string): T | null {
   try {

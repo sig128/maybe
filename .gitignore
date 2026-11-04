@@ -19,3 +19,4 @@ apps/web/e2e/.output/
 # Never commit keys except clearly-labeled localnet fixtures under programs/keys/localnet
 *.keypair.json
 !programs/keys/localnet/*.json
+apps/web/e2e-*.log

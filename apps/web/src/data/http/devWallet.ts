@@ -7,18 +7,34 @@ import { base58Encode, base58Decode, utf8ToBytes } from "@maybe/core";
  * such everywhere and the server refuses dev-wallet sessions outside localnet.
  */
 const KEY = "maybe.devwallet.v1";
+const SESSION_KEY = "maybe.devwallet.session.v1";
 
 export class DevWallet {
   private secret: Uint8Array | null = null;
   address: string | null = null;
-  session: string | null = null;
+  private session_: string | null = null;
 
   constructor() {
     try {
       const raw = localStorage.getItem(KEY);
       if (raw) this.load(base58Decode(raw));
+      this.session_ = localStorage.getItem(SESSION_KEY);
     } catch {
       /* storage unavailable: a fresh key per session */
+    }
+  }
+
+  /** sign-in session for this local API (a bearer token; it can't move funds by itself) */
+  get session(): string | null {
+    return this.session_;
+  }
+  set session(v: string | null) {
+    this.session_ = v;
+    try {
+      if (v) localStorage.setItem(SESSION_KEY, v);
+      else localStorage.removeItem(SESSION_KEY);
+    } catch {
+      /* ignore */
     }
   }
 

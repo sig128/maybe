@@ -78,7 +78,7 @@ export class HttpBackend implements Backend {
   assets = () => this.req<AssetInfo[]>("/assets");
 
   async wallet(): Promise<WalletState> {
-    if (!this.wallet_.address) return { status: "disconnected", label: "Local dev wallet", kind: "dev-keypair", balances: {} };
+    if (!this.wallet_.address || !this.wallet_.session) return { status: "disconnected", label: "Local dev wallet", kind: "dev-keypair", balances: {} };
     const balances = await this.req<Record<string, bigint>>(`/wallet/${this.wallet_.address}/balances`);
     return { status: "connected", address: this.wallet_.address, label: "Local dev wallet (localnet only)", kind: "dev-keypair", balances };
   }
@@ -95,6 +95,7 @@ export class HttpBackend implements Backend {
   }
 
   async disconnectWallet(): Promise<void> {
+    await this.post("/auth/logout", {}).catch(() => undefined);
     this.wallet_.session = null;
     this.emit("wallet", "portfolio");
   }
@@ -143,4 +144,25 @@ export class HttpBackend implements Backend {
   publishRoom = (strategyId: string, thesis: string, risk: string[]) => this.post<RoomRecord>("/rooms", { strategyId, thesis, risk });
   cloneRoom = (slug: string, version: number) => this.post<StrategyView>(`/rooms/${encodeURIComponent(slug)}/clone`, { version });
   ops = () => this.req<OpsStatus>("/ops");
+
+  /** local-validator controls; the server refuses them anywhere else */
+  dev = {
+    label: "Local validator controls",
+    resolveEvent: async (eventKey: string, outcome: "YES" | "NO" | "VOID") => {
+      await this.post(`/dev/events/${encodeURIComponent(eventKey)}/resolve`, { outcome });
+      this.emit("markets", "strategies", "activity");
+    },
+    disputeEvent: async (eventKey: string) => {
+      await this.post(`/dev/events/${encodeURIComponent(eventKey)}/dispute`, {});
+      this.emit("markets", "strategies", "activity");
+    },
+    observeBalance: async (eventKey: string, units: bigint) => {
+      await this.post(`/dev/events/${encodeURIComponent(eventKey)}/observe`, { units });
+      this.emit("markets", "strategies", "activity");
+    },
+    setExecutionPaused: async (on: boolean) => {
+      await this.post("/dev/pause", { paused: on });
+      this.emit("ops", "strategies", "activity");
+    },
+  };
 }

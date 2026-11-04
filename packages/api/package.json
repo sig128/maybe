@@ -1,0 +1,17 @@
+{
+  "name": "@maybe/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The contract between the web app and its backends: API types, wire serialization and the pure view builders both the browser simulation and the server use.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@maybe/agent": "workspace:*",
+    "@maybe/core": "workspace:*"
+  }
+}

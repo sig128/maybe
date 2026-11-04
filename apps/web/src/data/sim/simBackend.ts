@@ -3,7 +3,6 @@ import {
   actionReadiness,
   allActionsTerminal,
   applyOp,
-  buildAuthorization,
   buildFixtures,
   chargePolicy,
   checkPolicyForPlan,
@@ -14,25 +13,18 @@ import {
   deposit as ledgerDeposit,
   emptyVault,
   executeAction,
-  formatAmount,
   guardTimes,
   holdingsByMint,
   newVersion,
-  nextWakeTime,
   planHash,
   reservationByMint,
-  sampleHistory,
-  sampleQuote,
   setPaused,
   simAddress,
-  simulatePlan,
   templateById,
   transition,
   strategyMachine,
   withdraw as ledgerWithdraw,
-  validateStrategy,
   SimVenue,
-  ActionKind,
   effectiveEvent,
   type AssetInfo,
   type CapabilityPolicy,
@@ -41,7 +33,6 @@ import {
   type DescribeLookup,
   type EventView,
   type FixtureSet,
-  type Receipt,
   type Strategy,
   type StrategyLifecycleState,
   type StrategyState,
@@ -49,6 +40,25 @@ import {
   type VaultState,
 } from "@maybe/core";
 import { capabilityContext, fixtureWorld, newConversation, runLocalTurn, type AgentStrategySummary, type Conversation } from "@maybe/agent";
+import {
+  QUOTE_BUCKET_SECONDS,
+  cloneRoomDoc,
+  defaultEventView,
+  describeLookup,
+  draftStatus,
+  environmentInfo,
+  fmtUnits,
+  marketDetail,
+  marketExposure,
+  marketSummary,
+  opsJobsFromReadiness,
+  prepareStrategy,
+  receiptActivity,
+  roomSlug,
+  sampleRooms,
+  strategyView,
+  type StrategyRecord,
+} from "@maybe/api";
 import { safeLoad, safeRemove, safeSave } from "../serde.ts";
 import type {
   ActivityItem,
@@ -72,23 +82,8 @@ import type {
 const KEY = "maybe.sim.v2";
 const CHALLENGE_SECONDS = 10 * 60;
 const DAY = 86_400;
-const QUOTE_BUCKET_SECONDS = 5;
 
-interface SimStrategy {
-  id: string;
-  doc: Strategy;
-  status: StrategyLifecycleState;
-  createdAt: number;
-  updatedAt: number;
-  sample?: boolean;
-  bytes?: Uint8Array;
-  hash?: string;
-  signedAt?: number;
-  runtime?: StrategyState;
-  receipts: Receipt[];
-  pendingTx?: TxRecord[];
-  lastError?: string;
-}
+type SimStrategy = StrategyRecord;
 
 type SimSession = AgentSession & { conv: Conversation };
 
@@ -177,8 +172,7 @@ export class SimulationBackend implements Backend {
   }
 
   private fmt(mint: string, units: bigint): string {
-    const a = this.asset(mint);
-    return a ? `${formatAmount(units, a.decimals, { minFraction: 0, maxFraction: Math.min(a.decimals, 4) })} ${a.symbol}` : `${units}`;
+    return fmtUnits(this.fx, mint, units);
   }
 
   private log(item: Omit<ActivityItem, "id">) {
@@ -231,14 +225,7 @@ export class SimulationBackend implements Backend {
       reconciliation: [],
       counter: 0,
     };
-    for (const m of fx.markets) {
-      st.events[m.eventKey] =
-        m.status === "voided"
-          ? { status: "FINAL", outcome: "VOID", finalAt: seededAt - 2 * DAY, adapter: "ATTESTATION" }
-          : m.adapter === "balance-threshold"
-            ? { status: "OPEN", outcome: null, finalAt: null, adapter: "BALANCE", deadline: m.resolvesBy }
-            : { status: "OPEN", outcome: null, finalAt: null, adapter: "ATTESTATION" };
-    }
+    for (const m of fx.markets) st.events[m.eventKey] = defaultEventView(m, seededAt);
     vault = ledgerDeposit(vault, usdc, 900_000_000n);
     st.activity.push({ id: "seed-dep", at: seededAt - 3 * DAY, kind: "deposit", title: "Deposited 900 USDC", actor: "you", amounts: [{ mint: usdc, units: 900_000_000n, dir: "in" }], sample: true });
     let n = 0;
@@ -309,19 +296,9 @@ export class SimulationBackend implements Backend {
           s.receipts.push(res.receipt);
           s.updatedAt = now;
           s.lastError = undefined;
-          const rc = res.receipt;
           const label = s.doc.actions[i]?.label ?? `Step ${i + 1}`;
           const sig = this.fakeSignature();
-          this.log({
-            at: now,
-            kind: rc.kind === ActionKind.RELEASE ? "release" : "execute",
-            title: rc.kind === ActionKind.SWAP ? `${label}: ${this.fmt(rc.inMint, rc.amountIn)} → ${this.fmt(rc.outMint!, rc.amountOut)}` : rc.kind === ActionKind.TRANSFER ? `${label}: sent ${this.fmt(rc.inMint, rc.amountOut)}` : `${label}: ${this.fmt(rc.inMint, rc.amountOut)} back to available`,
-            detail: `${s.doc.title} · run ${rc.run + 1}${rc.fee > 0n ? ` · fee ${this.fmt(rc.inMint, rc.fee)}` : ""}${rc.skippedRuns ? ` · ${rc.skippedRuns} missed run(s) skipped` : ""}`,
-            actor: "keeper",
-            strategyId: s.id,
-            amounts: rc.kind === ActionKind.SWAP ? [{ mint: rc.inMint, units: rc.amount, dir: "out" }, { mint: rc.outMint!, units: rc.amountOut, dir: "in" }] : [{ mint: rc.inMint, units: rc.amount, dir: rc.kind === ActionKind.RELEASE ? "move" : "out" }],
-            tx: { id: this.id("tx"), label: "Execute step", state: "FINALIZED", signature: sig, createdAt: now, updatedAt: now, simulated: true },
-          });
+          this.log({ at: now, ...receiptActivity(this.fx, res.receipt, { label, title: s.doc.title, strategyId: s.id }), tx: { id: this.id("tx"), label: "Execute step", state: "FINALIZED", signature: sig, createdAt: now, updatedAt: now, simulated: true } });
           changed = true;
         }
       }
@@ -401,19 +378,7 @@ export class SimulationBackend implements Backend {
 
   // ───────────────────────────────────────── environment & assets
   async environment(): Promise<Environment> {
-    return {
-      mode: "simulation",
-      label: "Simulation",
-      description: "Everything runs in your browser on sample data and the real strategy engine. No chain, no real funds, no live venues.",
-      network: "none — simulated ledger",
-      executionLive: false,
-      venues: [
-        { id: "maybe-local", label: "MAYBE local settlement", discovery: "fixture", quotes: "sample", trading: "enabled", settlement: "Trusted attestation (development signers, simulated)", note: "Fictional markets resolved with the simulation controls." },
-        { id: "solana", label: "Solana on-chain observation", discovery: "fixture", quotes: "unavailable", trading: "enabled", settlement: "Objective: token-account balance read by the vault program", note: "Balance-threshold events resolve from chain state." },
-        { id: "polymarket", label: "Polymarket", discovery: "unavailable", quotes: "unavailable", trading: "read-only", settlement: "Not enforceable on Solana without an attestation route", note: "Read-only discovery needs network access from the server; not available in the browser simulation." },
-        { id: "kalshi", label: "Kalshi via DFlow", discovery: "unavailable", quotes: "unavailable", trading: "unavailable", settlement: "Not available", note: "Trading requires identity verification and is restricted by jurisdiction; vault-held positions are not supported." },
-      ],
-    };
+    return environmentInfo("simulation");
   }
 
   async fixtures(): Promise<FixtureSet> {
@@ -516,38 +481,7 @@ export class SimulationBackend implements Backend {
 
   // ───────────────────────────────────────── markets
   private marketSummary(m: FixtureSet["markets"][number]): MarketSummary {
-    const now = this.now();
-    const bucket = Math.floor(now / QUOTE_BUCKET_SECONDS);
-    const ev = this.state.events[m.eventKey] ?? { status: "OPEN", outcome: null, finalAt: null, adapter: "ATTESTATION" as const };
-    const eff = effectiveEvent(ev, now);
-    const quoted = m.kind === "binary" && m.status === "open" && !eff.final && m.adapter === "attestation";
-    const yes = quoted ? sampleQuote(m.seed, m.yesBps, bucket) : m.yesBps;
-    const status: MarketSummary["status"] = eff.final ? (eff.outcome === "VOID" ? "voided" : "resolved") : ev.status === "DISPUTED" ? "disputed" : now >= m.closesAt ? "closed" : m.status;
-    const compatible =
-      m.kind !== "binary"
-        ? { ok: false, reason: `${m.kind === "multi" ? "Multi-outcome" : "Scalar"} markets can't trigger funded actions yet` }
-        : status === "resolved" || status === "voided"
-          ? { ok: false, reason: `Already ${status}` }
-          : { ok: true };
-    return {
-      key: m.key,
-      eventKey: m.eventKey,
-      venue: m.venue,
-      venueMarketId: m.venueMarketId,
-      title: m.title,
-      category: m.category,
-      kind: m.kind,
-      outcomes: m.outcomes,
-      status,
-      closesAt: m.closesAt,
-      resolvesBy: m.resolvesBy,
-      quote: quoted ? { yesBps: yes, noBps: 10_000 - yes, spreadBps: m.spreadBps, asOf: bucket * QUOTE_BUCKET_SECONDS, source: "Sample quote (deterministic, simulation)", sample: true } : null,
-      depthUsd: m.depthUsd,
-      adapter: m.adapter,
-      trust: m.adapter === "attestation" ? "Trusted attestation · 2 of 3 development signers" : "Objective · read on-chain by the vault program",
-      compatible,
-      resolution: ev,
-    };
+    return marketSummary(m, this.state.events[m.eventKey], this.now(), "simulation");
   }
 
   async markets(): Promise<MarketSummary[]> {
@@ -557,52 +491,13 @@ export class SimulationBackend implements Backend {
   async market(key: string): Promise<MarketDetail | null> {
     const m = this.fx.markets.find((x) => x.key === key);
     if (!m) return null;
-    const s = this.marketSummary(m);
-    const exposure = Object.values(this.state.strategies)
-      .filter((st) => st.doc.events.some((e) => e.eventKey === m.eventKey))
-      .map((st) => ({
-        strategyId: st.id,
-        title: st.doc.title,
-        status: st.status,
-        steps: st.doc.actions.filter((a) => {
-          const ref = st.doc.events.find((e) => e.eventKey === m.eventKey)?.ref;
-          const guard = st.doc.nodes.find((n) => n.id === a.guard);
-          return ref && JSON.stringify(guard ?? {}).includes(`"${ref}"`);
-        }).map((a) => a.label ?? a.id),
-      }));
-    return {
-      ...s,
-      description: m.description,
-      rules: m.rules,
-      ruleHash: m.ruleHash,
-      resolutionSource: m.resolutionSource,
-      history: m.kind === "binary" ? [...sampleHistory(m.seed, m.yesBps, this.state.seededAt), ...(s.quote ? [{ t: s.quote.asOf, bps: s.quote.yesBps }] : [])] : [],
-      exposure,
-      ...(m.balance ? { balance: { watched: simAddress(`watched:${m.balance.watched}`), threshold: m.balance.thresholdUnits, mint: this.fx.assetByKey[m.balance.mintKey]!.mint } } : {}),
-    };
+    const exposure = marketExposure(m, Object.values(this.state.strategies));
+    return marketDetail(m, this.marketSummary(m), { historyFrom: this.state.seededAt, exposure, fx: this.fx, ...(m.balance ? { watched: simAddress(`watched:${m.balance.watched}`) } : {}) });
   }
 
   // ───────────────────────────────────────── strategies
   private view(s: SimStrategy): StrategyView {
-    const ctx = this.ctx();
-    const rt = s.runtime;
-    const times = rt ? guardTimes(rt, ctx) : [];
-    return {
-      id: s.id,
-      title: s.doc.title,
-      status: s.status,
-      doc: s.doc,
-      createdAt: s.createdAt,
-      updatedAt: s.updatedAt,
-      ...(s.sample ? { sample: true } : {}),
-      ...(s.hash && s.bytes ? { authorization: { hash: s.hash, size: s.bytes.length, ...(s.signedAt ? { signedAt: s.signedAt } : {}) } } : {}),
-      ...(s.pendingTx ? { pendingTx: s.pendingTx.map((t) => ({ ...t })) } : {}),
-      ...(rt ? { runtime: rt } : {}),
-      receipts: s.receipts,
-      readiness: rt ? rt.plan.actions.map((_, i) => actionReadiness(rt, i, ctx, times)) : [],
-      ...(rt && (s.status === "ACTIVE" || s.status === "PAUSED") ? { nextWake: nextWakeTime(rt, ctx) } : {}),
-      ...(s.lastError ? { lastError: s.lastError } : {}),
-    };
+    return strategyView(s, this.ctx());
   }
 
   async strategies(): Promise<StrategyView[]> {
@@ -628,8 +523,7 @@ export class SimulationBackend implements Backend {
     if (existing && existing.status !== "DRAFT" && existing.status !== "INVALID" && existing.status !== "READY" && existing.status !== "ACTIVATION_FAILED") {
       throw new Error("This future is already authorized. Editing creates a new version that needs a new signature.");
     }
-    const v = validateStrategy(doc, capabilityContext(this.fx, now));
-    const status: StrategyLifecycleState = v.ok ? "READY" : "INVALID";
+    const status: StrategyLifecycleState = draftStatus(doc, this.fx, now);
     this.state.strategies[doc.id] = { id: doc.id, doc, status, createdAt: existing?.createdAt ?? now, updatedAt: now, receipts: [], ...(existing?.sample ? { sample: true } : {}) };
     this.emit("strategies");
     return this.view(this.state.strategies[doc.id]!);
@@ -644,38 +538,13 @@ export class SimulationBackend implements Backend {
   }
 
   private lookup(): DescribeLookup {
-    return {
-      event: (k) => {
-        const m = this.fx.markets.find((x) => x.eventKey === k);
-        return m ? { title: m.title, venue: m.venue === "maybe-local" ? "MAYBE local settlement" : "Solana on-chain", trust: m.adapter === "attestation" ? "trusted attestation, 2 of 3 development signers" : "objective, read on-chain", ruleHash: m.ruleHash } : undefined;
-      },
-      asset: (m) => this.asset(m),
-      ref: (r) => {
-        const p = this.fx.pools.find((x) => x.address === r);
-        if (p) return { label: `${this.asset(p.mintA)?.symbol}/${this.asset(p.mintB)?.symbol} local pool`, kind: "pool" };
-        const o = this.fx.outcomeMarkets.find((x) => x.address === r);
-        if (o) return { label: "Orbit outcome market (local venue)", kind: "market" };
-        if (r === this.state.wallet.address) return { label: "your wallet", kind: "recipient" };
-        const st = Object.values(this.state.strategies).find((x) => x.runtime?.address === r);
-        if (st) return { label: `“${st.doc.title}”`, kind: "strategy" };
-        return undefined;
-      },
-    };
+    return describeLookup(this.fx, { mode: "simulation", wallet: this.state.wallet.address, strategies: Object.values(this.state.strategies).map((s) => ({ ...(s.runtime ? { address: s.runtime.address } : {}), title: s.doc.title })) });
   }
 
   async prepare(doc: Strategy): Promise<Prepared> {
-    const v = validateStrategy(doc, this.validationCtx());
-    if (!v.compiled) return { ok: false, issues: v.issues };
-    const refs = v.compiled.sourceMap.events;
-    const report = simulatePlan(v.compiled.plan, { start: this.now() }, refs);
-    const authorization = buildAuthorization(
-      v.compiled.bytes,
-      this.lookup(),
-      report,
-      { events: refs, actions: doc.actions.map((a) => a.label), allocations: doc.allocations.map((a) => a.label) },
-      { now: this.now(), environment: "Simulation — no chain, no real funds" },
-    );
-    return { ok: v.ok, issues: v.issues, hash: v.compiled.hash, bytes: v.compiled.bytes, plan: v.compiled.plan, sourceMap: v.compiled.sourceMap, report, authorization };
+    const available: Record<string, bigint> = {};
+    for (const [m, b] of Object.entries(this.state.vault.balances)) available[m] = b.available;
+    return prepareStrategy(doc, { fx: this.fx, now: this.now(), available, lookup: this.lookup(), environment: "Simulation — no chain, no real funds" });
   }
 
   async authorize(id: string, expectedHash: string, policy?: CapabilityPolicy): Promise<TxRecord[]> {
@@ -912,7 +781,7 @@ export class SimulationBackend implements Backend {
       this.emit("rooms", "activity");
       return existing;
     }
-    const slug = `${doc.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 40)}-${this.state.counter++}`;
+    const slug = roomSlug(doc.title, this.state.counter++);
     const room: RoomRecord = { id: this.id("room"), slug, title: doc.title, author: "you", createdAt: this.now(), sample: false, versions: [version], record: { kind: s.receipts.length ? "live" : "none", note: s.receipts.length ? "Live results from your own funded copy in this simulation." : "No track record yet.", outcomes: [] }, copies: 0 };
     this.state.rooms.unshift(room);
     this.log({ at: this.now(), kind: "room", title: `Published “${room.title}”`, detail: "Followers get the rules, never your holdings or your spending authority.", actor: "you" });
@@ -925,7 +794,7 @@ export class SimulationBackend implements Backend {
     const v = r?.versions.find((x) => x.version === version);
     if (!r || !v) throw new Error("Unknown room version.");
     const id = this.id("fut");
-    const doc: Strategy = { ...structuredClone(v.doc), id, version: 1, nonce: String(Math.floor(Math.random() * 2 ** 40)), expiresAt: Math.max(v.doc.expiresAt, this.now() + 7 * DAY), meta: { source: "room-clone", roomId: r.id, roomVersion: v.version } };
+    const doc: Strategy = cloneRoomDoc(r, version, { id, nonce: String(Math.floor(Math.random() * 2 ** 40)), now: this.now() });
     r.copies += 1;
     const view = await this.saveDraft(doc);
     this.log({ at: this.now(), kind: "room", title: `Copied “${r.title}” v${v.version} into your futures`, detail: "Independent draft in your own vault. It needs your own review and signature.", actor: "you", strategyId: id });
@@ -936,26 +805,12 @@ export class SimulationBackend implements Backend {
   // ───────────────────────────────────────── ops
   async ops(): Promise<OpsStatus> {
     const now = this.now();
-    const jobs = Object.values(this.state.strategies).flatMap((s) =>
-      s.runtime && (s.status === "ACTIVE" || s.status === "PAUSED")
-        ? s.runtime.plan.actions.map((_, i) => {
-            const r = actionReadiness(s.runtime!, i, this.ctx(now));
-            return {
-              id: `${s.id}:${i}`,
-              kind: `execute “${s.doc.actions[i]?.label ?? `step ${i + 1}`}”`,
-              state: r.state === "executable" ? "queued" : r.state === "scheduled" ? "scheduled" : r.state === "blocked" ? "blocked" : r.state === "waiting" ? "waiting" : "done",
-              attempts: 0,
-              runAt: r.state === "scheduled" ? r.at : now,
-              ...(r.state === "blocked" ? { lastError: r.reason } : {}),
-            };
-          })
-        : [],
-    );
+    const jobs = opsJobsFromReadiness(Object.values(this.state.strategies), this.ctx(now));
     const lastRec = this.state.reconciliation[0];
     return {
       mode: "simulation",
       keeper: { running: this.timer !== null, lastTickAt: this.state.keeper.lastTickAt, ticks: this.state.keeper.ticks },
-      jobs: jobs.filter((j) => j.state !== "done"),
+      jobs,
       reconciliation: this.state.reconciliation,
       health: [
         { name: "Strategy engine", ok: true, detail: "@maybe/core loaded in the browser" },
@@ -1037,59 +892,3 @@ export class SimulationBackend implements Backend {
   };
 }
 
-function sampleRooms(fx: FixtureSet, at: number): RoomRecord[] {
-  let n = 0;
-  const env = { now: at - 4 * DAY, fixtures: fx, id: () => `room_${n++}`, nonce: () => String(42_000 + n++) };
-  const build = (id: string) => {
-    const doc = templateById(id)!.build(env);
-    return { doc, hash: planHash(compileStrategy(doc).bytes) };
-  };
-  const milestones = build("milestones");
-  const veto = build("veto-window");
-  const both = build("both-yes");
-  return [
-    {
-      id: "room_sample_1",
-      slug: "fern-milestones",
-      title: "Scale into Fern on milestones",
-      author: "sample author",
-      createdAt: at - 4 * DAY,
-      sample: true,
-      versions: [{ version: 1, publishedAt: at - 4 * DAY, doc: milestones.doc, hash: milestones.hash, thesis: "Fern is only worth owning once each milestone is real. Tranches unlock in order and never early.", risk: ["Concentrated in one sample asset", "Milestone markets resolve by trusted attestation", "Unreached tranches refund at expiry; executed tranches carry price risk"] }],
-      record: { kind: "paper", note: "Sample paper simulation — illustrative only, not real results.", outcomes: [{ label: "Tranche 1 (proposal passes)", result: "open", detail: "Waiting on the treasury vote" }] },
-      copies: 0,
-    },
-    {
-      id: "room_sample_2",
-      slug: "orbit-unless-vetoed",
-      title: "Orbit ships — unless the gallery extends",
-      author: "sample author",
-      createdAt: at - 9 * DAY,
-      sample: true,
-      versions: [
-        { version: 1, publishedAt: at - 9 * DAY, doc: { ...veto.doc, nodes: veto.doc.nodes.map((nd) => (nd.kind === "veto" ? { ...nd, windowSeconds: DAY } : nd)) }, hash: veto.hash, thesis: "Act on Orbit, but give a competing announcement a day to land first.", risk: ["Veto window is 24h", "Trusted attestation"] },
-        { version: 2, publishedAt: at - 3 * DAY, doc: veto.doc, hash: veto.hash, thesis: "Widened the veto window to 48h after feedback.", risk: ["Veto window is 48h", "Trusted attestation"] },
-      ],
-      record: {
-        kind: "paper",
-        note: "Sample paper simulation — illustrative only, not real results.",
-        outcomes: [
-          { label: "Earlier sample run", result: "lost", detail: "Bought MAYBE; price fell 18% after the trigger (paper)" },
-          { label: "Earlier sample run", result: "refunded", detail: "Vetoed inside the window; nothing bought" },
-        ],
-      },
-      copies: 0,
-    },
-    {
-      id: "room_sample_3",
-      slug: "beta-and-bridge",
-      title: "Beta and bridge, or nothing",
-      author: "sample author",
-      createdAt: at - 2 * DAY,
-      sample: true,
-      versions: [{ version: 1, publishedAt: at - 2 * DAY, doc: both.doc, hash: both.hash, thesis: "Two independent things must both happen.", risk: ["Both events must resolve YES", "Refunds immediately when either resolves otherwise"] }],
-      record: { kind: "none", note: "No track record.", outcomes: [] },
-      copies: 0,
-    },
-  ];
-}

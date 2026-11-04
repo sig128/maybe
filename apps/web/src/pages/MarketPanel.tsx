@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { parseAmount } from "@maybe/core";
 import { useBackend } from "../data/BackendContext.tsx";
-import { useMarket, useNow } from "../data/queries.ts";
+import { useEnvironment, useMarket, useNow } from "../data/queries.ts";
 import { ProbabilityChart } from "../components/ProbabilityChart.tsx";
 import { Banner, Button, ErrorBlock, KV, LoadingBlock, Pill, SampleTag } from "../components/ui.tsx";
 import { Icon } from "../components/Icon.tsx";
@@ -19,6 +19,7 @@ export function MarketPanel({ marketKey, compact }: { marketKey: string; compact
   const [hover, setHover] = useState<{ t: number; bps: number } | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [observe, setObserve] = useState("");
+  const { data: envInfo } = useEnvironment();
   if (q.isLoading) return <LoadingBlock lines={6} />;
   if (q.error) return <ErrorBlock error={q.error} retry={() => void q.refetch()} />;
   const m = q.data;
@@ -26,7 +27,8 @@ export function MarketPanel({ marketKey, compact }: { marketKey: string; compact
   const ev = eventDisplay(m.resolution, now);
   const age = m.quote ? quoteAge(m.quote.asOf, now) : null;
   const shownBps = hover?.bps ?? m.quote?.yesBps ?? null;
-  const sim = backend.sim;
+  const sim = backend.sim ?? backend.dev;
+  const challenge = envInfo?.attestation?.challengeSeconds ?? 600;
   const run = async (f: () => Promise<void>, ok: string) => {
     try {
       await f();
@@ -165,14 +167,18 @@ export function MarketPanel({ marketKey, compact }: { marketKey: string; compact
       </section>
 
       {sim && m.kind === "binary" && (
-        <section className="panel panel-outline" aria-label="Simulation controls">
+        <section className="panel panel-outline" aria-label={backend.sim ? "Simulation controls" : "Local validator controls"}>
           <div className="row">
             <Icon name="info" size={16} style={{ color: "var(--c-amber)" }} />
-            <strong className="grow">Simulate the outcome</strong>
+            <strong className="grow">{backend.sim ? "Simulate the outcome" : "Resolve on the local validator"}</strong>
           </div>
           {m.adapter === "attestation" ? (
             <>
-              <p className="t-small muted">Proposes an outcome as if 2 of 3 development attestors signed it. It becomes final after a 10-minute challenge window (move time forward from the mode badge).</p>
+              <p className="t-small muted">
+                {backend.sim
+                  ? "Proposes an outcome as if 2 of 3 development attestors signed it. It becomes final after a 10-minute challenge window (move time forward from the mode badge)."
+                  : `Signs the outcome with 2 of 3 development attestor keys (localnet only) and submits it to the vault program. It becomes final after a ${challenge >= 60 ? `${Math.round(challenge / 60)}-minute` : `${challenge}-second`} challenge window unless disputed.`}
+              </p>
               <div className="row row-wrap">
                 {(["YES", "NO", "VOID"] as const).map((o) => (
                   <Button key={o} size="sm" onClick={() => run(() => sim.resolveEvent(m.eventKey, o), `Proposed ${o}`)} disabledReason={m.resolution.status === "FINAL" ? "Already final" : null}>

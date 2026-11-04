@@ -254,7 +254,7 @@ export function ModeBadge() {
       {sim && sim.clockOffset() !== 0 && <span className="muted hide-mobile">· +{Math.round(sim.clockOffset() / 3600)}h</span>}
     </span>
   );
-  if (!sim) return <Tip content={`${env.description} Network: ${env.network}.`}>{badge}</Tip>;
+  if (!sim && !backend.dev) return <Tip content={`${env.description} Network: ${env.network}.`}>{badge}</Tip>;
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
@@ -262,10 +262,40 @@ export function ModeBadge() {
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content className="pop pop-pad" sideOffset={8} align="end" style={{ width: 340 }}>
-          <SimControls now={now} />
+          {sim ? <SimControls now={now} /> : <DevControls description={env.description} network={env.network} />}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
+  );
+}
+
+function DevControls({ description, network }: { description: string; network: string }) {
+  const backend = useBackend();
+  const dev = backend.dev!;
+  const [paused, setPausedState] = useState(false);
+  const toggle = async (on: boolean) => {
+    setPausedState(on);
+    try {
+      await dev.setExecutionPaused(on);
+      toast({ title: on ? "Emergency pause on" : "Emergency pause lifted", tone: "ok" });
+    } catch (e) {
+      setPausedState(!on);
+      toast({ title: "Couldn't do that", detail: (e as Error).message, tone: "error" });
+    }
+  };
+  return (
+    <div className="stack">
+      <div className="stack-tight">
+        <strong>{dev.label}</strong>
+        <p className="t-small muted">{description}</p>
+        <p className="t-small muted">Network: {network}. Development keys sign outcomes here; they exist only on this machine and the server refuses them anywhere else.</p>
+      </div>
+      <label className="row t-small" style={{ justifyContent: "space-between" }}>
+        <span>Emergency pause (new steps only)</span>
+        <input type="checkbox" checked={paused} onChange={(e) => void toggle(e.target.checked)} />
+      </label>
+      <p className="hint">Resolve events from any market's detail panel.</p>
+    </div>
   );
 }
 

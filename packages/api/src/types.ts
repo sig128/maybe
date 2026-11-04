@@ -39,6 +39,8 @@ export interface Environment {
   executionLive: boolean;
   vaultProgram?: string;
   venues: VenueCapability[];
+  /** how outcomes are signed here (development attestors on localnet) */
+  attestation?: { threshold: number; of: number; challengeSeconds: number; development: boolean };
 }
 
 export interface WalletState {
@@ -284,6 +286,16 @@ export interface Backend {
   cloneRoom(slug: string, version: number): Promise<StrategyView>;
 
   ops(): Promise<OpsStatus>;
+
+  /** local-validator development controls (undefined elsewhere): signed by localnet-only keys */
+  dev?: {
+    label: string;
+    resolveEvent(eventKey: string, outcome: "YES" | "NO" | "VOID"): Promise<void>;
+    disputeEvent(eventKey: string): Promise<void>;
+    /** top the watched escrow account up to `units` (test tokens), then ask the program to observe it */
+    observeBalance(eventKey: string, units: bigint): Promise<void>;
+    setExecutionPaused(on: boolean): Promise<void>;
+  };
 
   /** simulation-only controls (undefined elsewhere) */
   sim?: {
