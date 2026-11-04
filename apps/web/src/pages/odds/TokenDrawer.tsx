@@ -27,9 +27,11 @@ function Chart({ mint, solUsd }: { mint: string; solUsd: number | null }) {
   const vals = pts.map((p) => p[1] * (solUsd ?? 1));
   const lo = Math.min(...vals);
   const hi = Math.max(...vals);
-  const span = hi - lo || hi * 0.02 || 1;
+  // the axis spans at least 10% of the value, so a 1% wiggle doesn't draw like a crash
+  const span = Math.max(hi - lo, ((hi + lo) / 2) * 0.1) || 1;
+  const base = (hi + lo) / 2 - span / 2;
   const x = (t: number) => ((t - t0) / Math.max(1, t1 - t0)) * W;
-  const y = (v: number) => H - 8 - ((v - lo) / span) * (H - 16);
+  const y = (v: number) => H - 8 - ((v - base) / span) * (H - 16);
   const line = pts.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(vals[i]!).toFixed(1)}`).join("");
   const up = vals[vals.length - 1]! >= vals[0]!;
   return (

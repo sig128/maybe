@@ -42,7 +42,9 @@ export function PositionsDrawer({ open, onOpenChange }: { open: boolean; onOpenC
   const live = practice.positions.filter((p) => p.status === "open");
   const done = practice.positions.filter((p) => p.status !== "open");
   const staked = live.reduce((n, p) => n + p.stake, 0);
-  const settledPnl = done.reduce((n, p) => n + ((p.payout ?? 0) - p.stake), 0);
+  const settledRaw = done.reduce((n, p) => n + ((p.payout ?? 0) - p.stake), 0);
+  // a result that rounds to zero reads as zero, not −0.00
+  const settledPnl = Math.abs(settledRaw) < 0.005 ? 0 : settledRaw;
   return (
     <Drawer open={open} onOpenChange={onOpenChange} title="Practice positions" subtitle="Settled by what actually happens on Solana mainnet">
       <div className="stack-loose">
@@ -57,9 +59,9 @@ export function PositionsDrawer({ open, onOpenChange }: { open: boolean; onOpenC
           </div>
           <div className="ostat">
             <span className="ostat-k">Settled result</span>
-            <span className={`ostat-v mono${settledPnl >= 0 ? " is-up" : " is-down"}`}>
-              {settledPnl >= 0 ? "+" : ""}
-              {solAmount(settledPnl)} SOL
+            <span className={`ostat-v mono${settledPnl > 0 ? " is-up" : settledPnl < 0 ? " is-down" : ""}`}>
+              {settledPnl > 0 ? "+" : settledPnl < 0 ? "−" : ""}
+              {solAmount(Math.abs(settledPnl))} SOL
             </span>
           </div>
         </div>
