@@ -56,4 +56,4 @@ The same scenarios on the unminified dev server ran 2–3× slower (worst input 
 
 - Screen-reader output with a real screen reader (VoiceOver / NVDA); naming was checked with axe and Playwright's accessibility tree only.
 - Firefox and WebKit (only Chromium is installed here).
-- The local-validator mode in a browser is exercised by a scripted run (`docs/evidence/localnet-ui/`), not by this suite.
+- The local-validator mode in a browser is exercised by a scripted run (`docs/evidence/localnet-ui/`), not by this suite. It was re-run after the server hardening (connect → deposit → authorize → resolve → execute → complete → activity → operations) with no console errors.
