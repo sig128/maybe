@@ -10,6 +10,8 @@ import { expect, test, type Page } from "@playwright/test";
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 async function openBoard(page: Page) {
+  // the board's own checks start after the intro (it has tests of its own below)
+  await page.addInitScript(() => sessionStorage.setItem("maybe.odds.intro", "seen"));
   await page.goto("/odds.html");
   await expect(page.getByRole("heading", { name: "Live odds on pump.fun tokens" })).toBeAttached();
   await expect(page.getByRole("status").filter({ visible: true }).first()).toBeVisible();
@@ -62,4 +64,46 @@ test("the public page has no wallet and no simulated balances", async ({ page })
   await openBoard(page);
   await expect(page.getByRole("button", { name: /Connect/ })).toHaveCount(0);
   await expect(page.getByText("2,500")).toHaveCount(0);
+});
+
+test.describe("intro", () => {
+  test("plays once, lands the logo on the header's and gets out of the way @responsive", async ({ page }, info) => {
+    await page.goto("/odds.html");
+    const intro = page.locator(".ointro");
+    await expect(intro).toBeVisible();
+    // the header's own logo waits under the intro until it's landed on
+    await expect(page.locator("[data-site-logo]")).toBeHidden();
+    await page.waitForTimeout(1500);
+    const dir = `e2e/.output/shots/${info.project.name}`;
+    mkdirSync(dir, { recursive: true });
+    await page.screenshot({ path: `${dir}/odds-intro.png` });
+    await expect(intro).toHaveCount(0, { timeout: 6000 });
+    await expect(page.locator("[data-site-logo]")).toBeVisible();
+    await expect(page.getByRole("button", { name: /practice SOL/ })).toBeVisible();
+    // once per visit
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Live odds on pump.fun tokens" })).toBeAttached();
+    await expect(intro).toHaveCount(0);
+  });
+
+  test("any key or tap skips it", async ({ page }) => {
+    await page.goto("/odds.html");
+    await expect(page.locator(".ointro")).toBeVisible();
+    await page.waitForTimeout(400);
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".ointro")).toHaveCount(0, { timeout: 1500 });
+    await page.goto("/odds.html?intro");
+    await expect(page.locator(".ointro")).toBeVisible();
+    await page.mouse.click(200, 200);
+    await expect(page.locator(".ointro")).toHaveCount(0, { timeout: 1500 });
+  });
+
+  test("never plays for people who prefer reduced motion", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/odds.html");
+    await expect(page.getByRole("heading", { name: "Live odds on pump.fun tokens" })).toBeAttached();
+    await page.waitForTimeout(300);
+    await expect(page.locator(".ointro")).toHaveCount(0);
+    await expect(page.locator("[data-site-logo]")).toBeVisible();
+  });
 });

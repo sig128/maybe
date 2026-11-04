@@ -89,6 +89,7 @@ Verified against Solana mainnet in a real browser on the published site; automat
 | Practice positions: buy at the line, sell back at the bid, settle on the chain (curve `complete` flag; pool spot price read at the close), void without a current price | Implemented & tested | web unit (ledger, graduation confirmation) |
 | Board UI: three virtualized columns, holds still while pointed at, touched or scrolled; token drawer; positions; phone layout | Implemented & tested | browser (`e2e/odds.spec.ts`: layout at 3 sizes, axe WCAG 2.2 AA, persistence) |
 | Public site (board only, CSP, no wallet, static hosting) | Implemented; published | `scripts/deploy-pages.sh`, browser |
+| Opening: the mark draws itself (a fan of possible futures collapses into the "maybe", the dot lands) and flies into the header while the board loads underneath; once per visit, any key or tap skips, never with reduced motion | Implemented & tested | browser (`e2e/odds.spec.ts` intro tests at 3 sizes) |
 | Real-money questions | Deferred | an audited on-chain market program, a license, and a production resolution source |
 
 ## External venues

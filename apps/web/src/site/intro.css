@@ -1,0 +1,126 @@
+/* ───────────────────────────── the opening: the mark draws itself, then lands in the header */
+.ointro {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow: hidden;
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+.ointro-backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--c-canvas);
+}
+/* light from the dot when it lands: lime, very low, gone by the time the board shows */
+.ointro-glow {
+  position: absolute;
+  width: min(78vmin, 680px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(199 255 107 / 0.12), rgb(199 255 107 / 0.035) 48%, transparent 76%);
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  pointer-events: none;
+}
+/* the same layout as the header logo (components/Logo.tsx), scaled up, so it can land on it exactly */
+.ointro-lockup {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-text);
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.ointro-mark {
+  display: block;
+  overflow: visible;
+}
+.ointro-stem,
+.ointro-commit {
+  stroke-dashoffset: 1;
+}
+.ointro-ray circle,
+.ointro-dot,
+.ointro-ring {
+  opacity: 0;
+}
+.ointro-ray circle {
+  fill: var(--c-text-2);
+}
+.ointro-lockup .wordmark {
+  clip-path: inset(-30% 100% -30% 0);
+}
+.ointro-status {
+  position: absolute;
+  left: 50%;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font: 12px/16px var(--f-mono);
+  letter-spacing: 0.01em;
+  color: var(--c-text-3);
+  white-space: nowrap;
+  transform: translateX(-50%);
+  opacity: 0;
+}
+.ointro-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c-amber);
+  flex: none;
+}
+.ointro-status i.is-live {
+  background: var(--c-accent);
+  animation: opulse 1.8s var(--ease-out) infinite;
+}
+.ointro-slot {
+  color: var(--c-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* while it plays, the header's own logo waits to be landed on */
+.osite[data-intro] .osite-brand {
+  visibility: hidden;
+}
+/* as it leaves, the board comes up underneath in one movement */
+.osite.is-revealing .osite-title,
+.osite.is-revealing .osite-status,
+.osite.is-revealing .osite-actions {
+  animation: osite-in 0.5s var(--ease-out) 0.3s both;
+}
+.osite.is-revealing .obar-top,
+.osite.is-revealing .onotice,
+.osite.is-revealing .otabs {
+  animation: osite-rise 0.6s var(--ease-out) 0.12s both;
+}
+.osite.is-revealing .ocol {
+  animation: osite-rise 0.7s var(--ease-out) 0.18s both;
+}
+.osite.is-revealing .ocol:nth-child(2) {
+  animation-delay: 0.26s;
+}
+.osite.is-revealing .ocol:nth-child(3) {
+  animation-delay: 0.34s;
+}
+@keyframes osite-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes osite-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .osite.is-revealing * {
+    animation: none !important;
+  }
+}
