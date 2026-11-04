@@ -151,6 +151,12 @@ export class LiveEngine {
   private history = new Map<string, Array<[number, number]>>();
   private historyV = new Map<string, number>();
   private pools = new Map<string, { base?: bigint; quote?: bigint; baseVault: string; quoteVault: string; decimals: number; supply: number }>();
+  /** graduates whose PumpSwap pool is still being looked up: their price question waits for it */
+  private poolLookups = new Set<string>();
+  /** graduates without a readable canonical SOL pool: Jupiter's price is used for them */
+  private noPool = new Set<string>();
+  /** Jupiter's latest market cap (SOL), kept for when the chain can't be read */
+  private jupMcapSol = new Map<string, number>();
   private watchedCurves = new Map<string, string>(); // curve account → mint
   private launches: number[] = [];
   private listeners = new Set<() => void>();
@@ -254,12 +260,14 @@ export class LiveEngine {
     if (this.emitQueued) return;
     this.emitQueued = true;
     const run = () => {
+      if (!this.emitQueued) return;
       this.emitQueued = false;
       if (this.columnsDirty && !this.paused) this.rebuildColumns();
       for (const f of this.listeners) f();
     };
+    // the next frame, or a quarter second if frames stall (hidden tabs, occluded windows)
     if (typeof requestAnimationFrame === "function" && typeof document !== "undefined" && document.visibilityState === "visible") requestAnimationFrame(run);
-    else setTimeout(run, 250);
+    setTimeout(run, 250);
   }
 
   private refreshStatus(): void {
@@ -426,11 +434,16 @@ export class LiveEngine {
   }
 
   private async watchPool(mint: string, poolAddress: string, decimals: number, supply: number): Promise<void> {
-    if (this.pools.has(mint)) return;
+    if (this.pools.has(mint) || this.poolLookups.has(mint)) return;
+    this.poolLookups.add(mint);
     try {
       const acct = (await this.rpc.accounts([poolAddress])).get(poolAddress);
       const pool = acct ? decodePool(acct) : null;
-      if (!pool || pool.baseMint !== mint || pool.quoteMint !== WSOL) return; // only canonical SOL pools, checked against the mint
+      if (!pool || pool.baseMint !== mint || pool.quoteMint !== WSOL) {
+        // not a canonical SOL pool: Jupiter's price is all there is, so the row and the question go by it
+        this.fallBackToJupiter(mint);
+        return;
+      }
       const entry = { baseVault: pool.baseVault, quoteVault: pool.quoteVault, decimals, supply } as { base?: bigint; quote?: bigint; baseVault: string; quoteVault: string; decimals: number; supply: number };
       this.pools.set(mint, entry);
       this.put(mint, { poolAddress });
@@ -438,9 +451,10 @@ export class LiveEngine {
         const a = data ? decodeTokenAccount(data) : null;
         if (!a) return;
         entry[which] = a.amount;
-        if (entry.base && entry.quote && entry.base > 0n) {
-          const priceSol = Number(entry.quote) / 1e9 / (Number(entry.base) / 10 ** entry.decimals);
-          this.setMcap(mint, priceSol * entry.supply, { poolAt: Date.now() });
+        const mcapSol = poolMcapSol(entry);
+        if (mcapSol !== null) {
+          this.setMcap(mint, mcapSol, { poolAt: Date.now() });
+          this.poolLookups.delete(mint);
           this.openAboveIfReady(mint);
         }
       };
@@ -451,7 +465,16 @@ export class LiveEngine {
       onVault("quote")(vaults.get(pool.quoteVault) ?? null);
     } catch {
       // Jupiter's price keeps the row current if the pool can't be read
+      this.fallBackToJupiter(mint);
     }
+  }
+
+  private fallBackToJupiter(mint: string): void {
+    this.poolLookups.delete(mint);
+    this.noPool.add(mint);
+    const j = this.jupMcapSol.get(mint);
+    if (j) this.setMcap(mint, j);
+    this.openAboveIfReady(mint);
   }
 
   private unwatchPool(mint: string): void {
@@ -600,9 +623,11 @@ export class LiveEngine {
       ...(!t.website && x.website ? { website: x.website } : {}),
       ...(!t.creator && x.dev ? { creator: x.dev } : {}),
     };
-    // market cap: chain data wins when it's fresh; Jupiter fills in otherwise
-    const chainFresh = (t.stage === "graduated" ? t.poolAt : t.curveAt) ?? 0;
-    if (x.mcap && sol && now - chainFresh > 6000) {
+    // market cap: a watched curve or pool is the source (Jupiter's price runs a few percent off the
+    // pool's spot, so mixing the two would make the number jump); Jupiter fills in only where the chain isn't watched
+    if (x.mcap && sol) this.jupMcapSol.set(x.id, x.mcap / sol);
+    const chainWatched = t.stage === "graduated" ? this.pools.has(x.id) || this.poolLookups.has(x.id) || (!!x.graduatedPool && !this.noPool.has(x.id)) : !!t.curveKey && this.watchedCurves.has(t.curveKey);
+    if (x.mcap && sol && !chainWatched) {
       this.put(x.id, patch);
       this.setMcap(x.id, x.mcap / sol);
     } else this.put(x.id, patch);
@@ -665,6 +690,9 @@ export class LiveEngine {
     if (!t) return;
     if (t.curveKey) this.unwatchCurve(t.curveKey);
     this.unwatchPool(mint);
+    this.poolLookups.delete(mint);
+    this.noPool.delete(mint);
+    this.jupMcapSol.delete(mint);
     this.tokens.delete(mint);
     this.flows.delete(mint);
     this.history.delete(mint);
@@ -692,6 +720,8 @@ export class LiveEngine {
     const t = this.tokens.get(mint);
     if (!t || t.stage !== "graduated" || !t.mcapUsd) return;
     if (this.marketsFor(mint).some((m) => m.kind === "above-1h")) return;
+    // the strike and the close come from the same source: the pool's spot price once it's known
+    if (this.poolLookups.has(mint) || (this.pools.has(mint) && !t.poolAt)) return;
     const now = Date.now();
     // watched live: strike at its graduation value; joined later: strike at today's value
     const strike = t.mcapUsd;
@@ -747,8 +777,25 @@ export class LiveEngine {
     try {
       const t = this.tokens.get(m.mint);
       if (m.kind === "above-1h") {
-        const fresh = t && t.mcapUsd && now() - Math.max(t.poolAt ?? 0, t.stats?.updatedAt ?? 0) < 20_000;
-        if (t && fresh && m.strikeUsd) this.resolve(m.id, t.mcapUsd! >= m.strikeUsd ? "yes" : "no", `Market cap at the close: ${fmtStrike(t.mcapUsd!)}.`);
+        if (!m.strikeUsd) return this.resolve(m.id, "void", "No strike was set, so stakes are returned.");
+        // the pool's spot price, read at the close
+        const pool = this.pools.get(m.mint);
+        const sol = this.status.solUsd;
+        if (pool && sol) {
+          const vaults = await this.rpc.accounts([pool.baseVault, pool.quoteVault]).catch(() => null);
+          const base = vaults?.get(pool.baseVault);
+          const quote = vaults?.get(pool.quoteVault);
+          const b = base ? decodeTokenAccount(base) : null;
+          const q = quote ? decodeTokenAccount(quote) : null;
+          const mcapSol = b && q ? poolMcapSol({ base: b.amount, quote: q.amount, decimals: pool.decimals, supply: pool.supply }) : null;
+          if (mcapSol !== null) {
+            const usd = mcapSol * sol;
+            return this.resolve(m.id, usd >= m.strikeUsd ? "yes" : "no", `Market cap at the close: ${fmtStrike(usd)}, from the PumpSwap pool.`);
+          }
+        }
+        // no pool read: the last value stands only if its source is demonstrably current
+        const fresh = t && t.mcapUsd && ((this.pools.has(m.mint) && this.rpc.live) || now() - (t.stats?.updatedAt ?? 0) < 20_000);
+        if (t && fresh) this.resolve(m.id, t.mcapUsd! >= m.strikeUsd ? "yes" : "no", `Market cap at the close: ${fmtStrike(t.mcapUsd!)}.`);
         else this.resolve(m.id, "void", "No fresh price at the close, so stakes are returned.");
         return;
       }
@@ -891,6 +938,13 @@ export class LiveEngine {
       await this.enrich(open.map((p) => p.mint));
     })();
   }
+}
+
+/** Market cap in SOL from a PumpSwap pool's vault balances (spot price × supply). */
+function poolMcapSol(p: { base?: bigint; quote?: bigint; decimals: number; supply: number }): number | null {
+  if (!p.base || !p.quote || p.base <= 0n) return null;
+  const priceSol = Number(p.quote) / 1e9 / (Number(p.base) / 10 ** p.decimals);
+  return priceSol * p.supply;
 }
 
 function now(): number {
