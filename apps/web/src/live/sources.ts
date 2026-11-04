@@ -350,6 +350,12 @@ export interface JupToken {
   firstPool?: { id: string; createdAt: string };
 }
 
+class RateLimited extends Error {
+  constructor() {
+    super("rate limited");
+  }
+}
+
 export class Jupiter {
   health: SourceHealth = { state: "connecting", lastAt: 0, latencyMs: null, detail: "Jupiter" };
   private queue: Array<() => Promise<void>> = [];
@@ -396,7 +402,17 @@ export class Jupiter {
     }
   }
 
-  private async get<T>(path: string): Promise<T> {
+  /** A rate-limited request waits out the window and goes again (twice at most) instead of failing. */
+  private async get<T>(path: string, retries = 2): Promise<T> {
+    try {
+      return await this.request<T>(path);
+    } catch (e) {
+      if (e instanceof RateLimited && retries > 0) return this.get<T>(path, retries - 1);
+      throw e;
+    }
+  }
+
+  private request<T>(path: string): Promise<T> {
     return this.schedule(async () => {
       const t0 = now();
       const res = await fetch(`${this.base}${path}`, { signal: AbortSignal.timeout(8000) });
@@ -405,7 +421,7 @@ export class Jupiter {
         this.blockedUntil = Number.isFinite(reset) && reset > 0 ? reset * 1000 + 200 : now() + 10_000;
         this.health = { ...this.health, state: "retrying", detail: "Jupiter (rate limited)" };
         this.onHealth();
-        throw new Error("rate limited");
+        throw new RateLimited();
       }
       if (!res.ok) throw new Error(`Jupiter ${res.status}`);
       const body = (await res.json()) as T;

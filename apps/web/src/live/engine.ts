@@ -464,9 +464,15 @@ export class LiveEngine {
 
   // ───────────────────────────────────────── Jupiter: seed and enrich
 
-  private async seed(): Promise<void> {
+  private async seed(attempt = 0): Promise<void> {
     try {
-      const [recent, traded] = await Promise.all([this.jup.list("recent"), this.jup.list("toptraded/5m", 60)]);
+      // either list alone still seeds the board; one that failed is tried again a little later
+      const [recentR, tradedR] = await Promise.allSettled([this.jup.list("recent"), this.jup.list("toptraded/5m", 60)]);
+      const recent = recentR.status === "fulfilled" ? recentR.value : [];
+      const traded = tradedR.status === "fulfilled" ? tradedR.value : [];
+      if ((recentR.status === "rejected" || tradedR.status === "rejected") && attempt < 2 && this.started) {
+        setTimeout(() => void this.seed(attempt + 1), 12_000);
+      }
       const seen = new Set<string>();
       const all = [...traded, ...recent].filter((x) => x.launchpad === "pump.fun" && !seen.has(x.id) && seen.add(x.id));
       const onCurve = all.filter((x) => !x.graduatedPool);
