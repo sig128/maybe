@@ -57,7 +57,8 @@ function Source({ label, value, tone, title }: { label: string; value: string; t
   );
 }
 
-export function StatusBar() {
+/** `scrollable`: the row scrolls sideways on narrow screens, so it takes keyboard focus there. */
+export function StatusBar({ scrollable = false }: { scrollable?: boolean }) {
   const s = useLiveStatus();
   const now = useClock();
   const feedTone = healthTone(s.feed, now, 30_000);
@@ -66,7 +67,7 @@ export function StatusBar() {
   const statsAge = s.stats.lastAt ? Math.max(0, Math.round((now - s.stats.lastAt) / 1000)) : null;
   const live = feedTone === "live" && chainTone === "live";
   return (
-    <div className="ostatus" role="status" aria-live="off">
+    <div className="ostatus" role="status" aria-live="off" aria-label="Live data" {...(scrollable ? { tabIndex: 0 } : {})}>
       <span className={`olive is-${live ? "live" : "slow"}`}>
         <i aria-hidden="true" />
         {live ? "Live on mainnet" : "Connecting to Solana"}
@@ -84,10 +85,14 @@ export function BalanceButton() {
   const practice = usePractice();
   const openCount = practice.positions.filter((p) => p.status === "open").length;
   return (
-    <button className="obalance" onClick={() => openPositions()} aria-label={`${solAmount(practice.balance)} practice SOL${openCount ? `, ${openCount} open positions` : ""}. Show positions`}>
-      <span className="mono">{solAmount(practice.balance)}</span>
-      <span className="muted">practice SOL</span>
-      {openCount > 0 && <span className="obadge mono">{openCount}</span>}
+    <button className="obalance" onClick={() => openPositions()}>
+      <span className="mono">{solAmount(practice.balance)}</span> <span className="muted">practice SOL</span>
+      {openCount > 0 && (
+        <span className="obadge mono">
+          {openCount}
+          <span className="sr-only"> open</span>
+        </span>
+      )}
     </button>
   );
 }
@@ -175,7 +180,8 @@ function Column({ stage, title, hint, stake, query, rowH, onOpen, onVisible, pau
           </button>
         )}
       </header>
-      <div className="ocol-list" ref={scrollRef} tabIndex={-1} onScroll={(e) => (e.currentTarget.scrollTop > 8) !== hold.current.scrolled && set({ scrolled: e.currentTarget.scrollTop > 8 })}>
+      {/* focusable so the list scrolls from the keyboard even before any row arrives */}
+      <div className="ocol-list" ref={scrollRef} tabIndex={0} onScroll={(e) => (e.currentTarget.scrollTop > 8) !== hold.current.scrolled && set({ scrolled: e.currentTarget.scrollTop > 8 })}>
         {shown.length === 0 ? (
           <div className="ocol-empty">
             <span className="oskel" aria-hidden="true" />
@@ -291,7 +297,7 @@ export default function Odds() {
   return (
     <div className={`odds${narrow ? " is-narrow" : ""}`}>
       <div className="obar-top">
-        <StatusBar />
+        <StatusBar scrollable={narrow} />
         <div className="ocontrols">
           <label className="osearch">
             <Icon name="search" size={15} />
