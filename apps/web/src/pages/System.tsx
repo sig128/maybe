@@ -40,14 +40,14 @@ export function Ops() {
       </section>
       <section className="panel panel-flush">
         <h3 className="t-head" style={{ padding: "16px 20px 0" }}>
-          Pending steps
+          Background work
         </h3>
         {o.jobs.length === 0 ? (
           <p className="muted t-small" style={{ padding: 20 }}>
             Nothing pending.
           </p>
         ) : (
-          <div className="scroll-x" role="region" aria-label="Pending steps (scrolls sideways)" tabIndex={0}>
+          <div className="scroll-x" role="region" aria-label="Background work (scrolls sideways)" tabIndex={0}>
             <table className="table">
               <thead>
                 <tr>
@@ -64,7 +64,7 @@ export function Ops() {
                       {j.kind}
                     </td>
                     <td>
-                      <Pill tone={j.state === "queued" ? "live" : j.state === "blocked" ? "pending" : "quiet"}>{j.state}</Pill>
+                      <Pill tone={j.state === "queued" || j.state === "running" ? "live" : j.state === "stopped" ? "error" : j.state === "blocked" || j.state === "retrying" || j.state === "waiting" || j.state === "scheduled" ? "pending" : "quiet"}>{j.state}</Pill>
                     </td>
                     <td className="right t-small">{relTime(j.runAt, now)}</td>
                     <td className="t-small muted">{j.lastError ?? ""}</td>

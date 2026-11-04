@@ -18,6 +18,7 @@ import type { App } from "./app.ts";
 import { recentJobs, type Queryable } from "./jobs.ts";
 import {
   eventViews,
+  getStrategyByAccount,
   inflightIntents,
   kvGet,
   listPolicies,
@@ -128,6 +129,24 @@ export async function policies(app: App, owner: string): Promise<CapabilityPolic
   return (await listPolicies(app.db, owner)).filter((p) => p.confirmed && p.state).map((p) => p.state!);
 }
 
+const JOB_STATE: Record<string, string> = { QUEUED: "queued", RUNNING: "running", RETRY_WAIT: "retrying", SUCCEEDED: "done", DEAD: "stopped", CANCELLED: "cancelled" };
+
+/** What a background job is doing, in the words the rest of the app uses. */
+async function jobLabel(app: App, kind: string, p: Record<string, unknown>): Promise<string> {
+  const market = (event: unknown) => app.fx.markets.find((m) => m.eventKey === event)?.title ?? "an event";
+  if (kind === "execute" || kind === "close") {
+    const row = await getStrategyByAccount(app.db, String(p.strategy));
+    const title = row?.title ?? "a future";
+    if (kind === "close") return `Close “${title}” (${p.mode === "EXPIRE" ? "expired" : "all steps settled"})`;
+    const label = row?.doc.actions[Number(p.action)]?.label ?? `step ${Number(p.action) + 1}`;
+    return `Run ${Number(p.run) + 1} of “${label}” in “${title}”`;
+  }
+  if (kind === "observe") return `Observe the escrow balance for “${market(p.event)}”`;
+  if (kind === "finalize") return `Record that “${market(p.event)}” is final`;
+  if (kind === "void-disputed") return `Void the disputed “${market(p.event)}”`;
+  return kind;
+}
+
 export async function ops(app: App, owner: string | null): Promise<OpsStatus> {
   const ctx = await chainContext(app);
   const keeper = await kvGet<{ lastTickAt: number; ticks: number; at: number }>(app.db, "keeper");
@@ -143,7 +162,11 @@ export async function ops(app: App, owner: string | null): Promise<OpsStatus> {
     mode: app.mode,
     keeper: { running: keeperAlive, lastTickAt: keeper?.lastTickAt ?? 0, ticks: keeper?.ticks ?? 0 },
     jobs: [
-      ...jobs.filter((j) => j.state !== "SUCCEEDED" || nowWall - Math.floor(j.updatedAt.getTime() / 1000) < 30).map((j) => ({ id: j.key, kind: j.kind, state: j.state.toLowerCase(), attempts: j.attempts, runAt: Math.floor(j.runAt.getTime() / 1000), ...(j.lastError ? { lastError: j.lastError } : {}) })),
+      ...(await Promise.all(
+        jobs
+          .filter((j) => j.state !== "SUCCEEDED" || nowWall - Math.floor(j.updatedAt.getTime() / 1000) < 30)
+          .map(async (j) => ({ id: j.key, kind: await jobLabel(app, j.kind, j.payload), state: JOB_STATE[j.state] ?? j.state.toLowerCase(), attempts: j.attempts, runAt: Math.floor(j.runAt.getTime() / 1000), ...(j.lastError ? { lastError: j.lastError } : {}) })),
+      )),
       ...readiness.filter((r) => r.state !== "queued"),
     ],
     reconciliation: rec,

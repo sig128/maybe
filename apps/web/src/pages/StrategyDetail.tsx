@@ -117,8 +117,14 @@ export function StrategyDetail() {
             <div className="timeline">
               {s.doc.actions.map((a, i) => {
                 const r = s.readiness[i];
-                const d = readinessDisplay(r, now);
                 const runs = rt?.actions[i];
+                // once the future closes every step reads "closed"; say what actually happened instead
+                const d =
+                  r?.state === "done" && r.reason === "STRATEGY_CLOSED"
+                    ? runs && runs.executedRuns > 0
+                      ? { tone: "neutral" as const, icon: "check" as const, label: "Done" }
+                      : { tone: "neutral" as const, icon: "close" as const, label: "Didn't run" }
+                    : readinessDisplay(r, now);
                 const marker = runs && runs.executedRuns > 0 && r?.state === "done" ? "done" : r?.state === "executable" ? "live" : r?.state === "scheduled" || r?.state === "blocked" ? "pending" : r?.state === "done" ? "skip" : "idle";
                 const receipts = s.receipts.filter((x) => x.action === i);
                 return (

@@ -1,4 +1,4 @@
-import type { AssetInfo, CapabilityPolicy, FixtureSet, Strategy } from "@maybe/core";
+import { emptyVault, type AssetInfo, type CapabilityPolicy, type FixtureSet, type Strategy } from "@maybe/core";
 import { parse, stringify } from "../serde.ts";
 import type {
   ActivityItem,
@@ -39,11 +39,16 @@ export class HttpBackend implements Backend {
   private async req<T>(path: string, init: RequestInit = {}): Promise<T> {
     const res = await fetch(`${this.base.replace(/\/$/, "")}/v1${path}`, {
       ...init,
-      credentials: "include",
+      // bearer-token auth only: no cookies cross the origin boundary
       headers: { "content-type": "application/json", ...(init.method && init.method !== "GET" ? { "idempotency-key": crypto.randomUUID() } : {}), ...(this.wallet_.session ? { authorization: `Bearer ${this.wallet_.session}` } : {}), ...(init.headers ?? {}) },
     });
     const text = await res.text();
     const body = text ? parse<{ error?: string } & T>(text) : ({} as T & { error?: string });
+    if (res.status === 401 && this.wallet_.session) {
+      // the sign-in expired or the server was reset: back to a clean disconnected state
+      this.wallet_.session = null;
+      this.emit("wallet", "portfolio", "strategies", "activity", "agents");
+    }
     if (!res.ok) throw new Error(body.error ?? `${res.status} ${res.statusText}`);
     return body;
   }
@@ -111,13 +116,21 @@ export class HttpBackend implements Backend {
     return this.post<TxRecord[]>("/tx/submit", { intent: built.intent, signed, labels: built.labels });
   }
 
-  portfolio = () => this.req<Portfolio>(`/portfolio`);
+  /** Disconnected is a normal state: user-scoped reads are empty rather than errors. */
+  private get signedIn(): boolean {
+    return !!this.wallet_.session;
+  }
+
+  portfolio = async (): Promise<Portfolio> =>
+    this.signedIn
+      ? this.req<Portfolio>(`/portfolio`)
+      : { asOf: this.now(), wallet: {}, vault: emptyVault("", ""), strategies: [], pendingReservations: [], pendingTransfers: [], estimates: {} };
   deposit = async (mint: string, units: bigint) => (await this.signAndSubmit("/money/deposit", { mint, units }))[0]!;
   withdraw = async (mint: string, units: bigint) => (await this.signAndSubmit("/money/withdraw", { mint, units }))[0]!;
   markets = () => this.req<MarketSummary[]>("/markets");
   market = (key: string) => this.req<MarketDetail | null>(`/markets/${encodeURIComponent(key)}`);
-  strategies = () => this.req<StrategyView[]>("/strategies");
-  strategy = (id: string) => this.req<StrategyView | null>(`/strategies/${encodeURIComponent(id)}`);
+  strategies = async () => (this.signedIn ? this.req<StrategyView[]>("/strategies") : []);
+  strategy = async (id: string) => (this.signedIn ? this.req<StrategyView | null>(`/strategies/${encodeURIComponent(id)}`) : null);
   saveDraft = (doc: Strategy) => this.post<StrategyView>("/strategies", { doc });
   deleteDraft = async (id: string) => {
     await this.req(`/strategies/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -128,10 +141,10 @@ export class HttpBackend implements Backend {
   newVersionOf = (id: string) => this.post<StrategyView>(`/strategies/${encodeURIComponent(id)}/new-version`, {});
   pause = async (id: string, paused: boolean) => (await this.signAndSubmit(`/strategies/${encodeURIComponent(id)}/pause`, { paused }))[0]!;
   cancel = async (id: string) => (await this.signAndSubmit(`/strategies/${encodeURIComponent(id)}/cancel`, {}))[0]!;
-  activity = () => this.req<ActivityItem[]>("/activity");
-  agentSessions = () => this.req<AgentSession[]>("/agents/sessions");
+  activity = async () => (this.signedIn ? this.req<ActivityItem[]>("/activity") : []);
+  agentSessions = async () => (this.signedIn ? this.req<AgentSession[]>("/agents/sessions") : []);
   sendAgentMessage = (sessionId: string | null, role: AgentRole, text: string) => this.post<AgentSession>("/agents/message", { sessionId, role, text });
-  policies = () => this.req<CapabilityPolicy[]>("/agents/policies");
+  policies = async () => (this.signedIn ? this.req<CapabilityPolicy[]>("/agents/policies") : []);
   createPolicy = (p: Parameters<Backend["createPolicy"]>[0]) => this.signAndSubmit("/agents/policies", p).then(() => this.req<CapabilityPolicy[]>("/agents/policies").then((l) => l[0]!));
   revokePolicy = async (address: string) => {
     await this.signAndSubmit(`/agents/policies/${encodeURIComponent(address)}/revoke`, {});
