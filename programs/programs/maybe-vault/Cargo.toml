@@ -1,0 +1,28 @@
+[package]
+name = "maybe-vault"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "maybe_vault"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = "1.2.2"
+maybe-logic = { path = "../../crates/maybe-logic" }
+solana-sha256-hasher = { version = "3.1.0", features = ["sha2"] }
+bytemuck = { version = "1.25", features = ["derive", "min_const_generics"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

@@ -1,4 +1,5 @@
 import { LIMITS } from "./limits.ts";
+import { formatAmount } from "./money.ts";
 import { assetSupport, type AssetInfo } from "./assets.ts";
 import { compileStrategy, CompileError, type Compiled } from "./compile.ts";
 import { ActionKind, AmountKind, actionDeadline } from "./plan.ts";
@@ -179,15 +180,6 @@ export function validateStrategy(input: unknown, ctx: ValidationContext): Valida
     reservation[al.mint] = (reservation[al.mint] ?? 0n) + BigInt(al.amount);
     checkAsset(al.mint, at);
   }
-  if (ctx.availableByMint) {
-    for (const [mint, need] of Object.entries(reservation)) {
-      const have = ctx.availableByMint[mint] ?? 0n;
-      if (need > have) {
-        const sym = ctx.assets?.[mint]?.symbol ?? "tokens";
-        add("error", "INSUFFICIENT_AVAILABLE", `Needs ${need} base units of ${sym} but only ${have} are available in the vault`, { kind: "strategy", field: "allocations" });
-      }
-    }
-  }
 
   function checkAsset(mint: string, at: Issue["target"]) {
     if (!ctx.assets) return;
@@ -272,7 +264,29 @@ export function validateStrategy(input: unknown, ctx: ValidationContext): Valida
   }
 
   semanticChecks(doc, compiled, ctx, add);
-  return { ok: !issues.some((i) => i.severity === "error"), issues, compiled, strategy: doc };
+  // funding is checked last: an unfunded plan still compiles so it can be reviewed
+  if (ctx.availableByMint) {
+    for (const [mint, need] of Object.entries(reservation)) {
+      const have = ctx.availableByMint[mint] ?? 0n;
+      if (need > have) {
+        const a = ctx.assets?.[mint];
+        const fmt = (u: bigint) => (a ? `${formatAmount(u, a.decimals, { minFraction: 0 })} ${a.symbol}` : `${u} base units`);
+        add("error", "INSUFFICIENT_AVAILABLE", `Needs ${fmt(need)} but only ${fmt(have)} is available in your vault. Deposit ${fmt(need - have)} more to fund it.`, { kind: "strategy", field: "allocations" });
+      }
+    }
+  }
+  return { ok: !issues.some((i) => i.severity === "error"), issues: dedupe(issues), compiled, strategy: doc };
+}
+
+/** Same message about the same thing once: asset risk notes would otherwise repeat per allocation and step. */
+function dedupe(issues: Issue[]): Issue[] {
+  const seen = new Set<string>();
+  return issues.filter((i) => {
+    const k = i.severity === "error" ? `${i.code}|${i.message}|${i.target.kind}|${i.target.id ?? ""}` : `${i.code}|${i.message}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
 }
 
 function staticAmount(plan: Compiled["plan"], i: number): bigint | null {

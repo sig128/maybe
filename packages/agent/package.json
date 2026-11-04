@@ -1,0 +1,17 @@
+{
+  "name": "@maybe/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MAYBE agent runtime: roles, tool allowlists, injection boundary, deterministic local assistant, model provider adapters.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@maybe/core": "workspace:*",
+    "zod": "4.6.7"
+  }
+}

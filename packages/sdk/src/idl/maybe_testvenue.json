@@ -1,0 +1,591 @@
+{
+  "address": "4Na5xvms9PXcE7KYq97juhzznM9jsKQ5dgSJxfR4pHDJ",
+  "metadata": {
+    "name": "maybe_testvenue",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "add_liquidity",
+      "discriminator": [
+        181,
+        157,
+        89,
+        67,
+        143,
+        182,
+        52,
+        72
+      ],
+      "accounts": [
+        {
+          "name": "provider",
+          "signer": true
+        },
+        {
+          "name": "pool"
+        },
+        {
+          "name": "mint_a"
+        },
+        {
+          "name": "mint_b"
+        },
+        {
+          "name": "vault_a",
+          "writable": true
+        },
+        {
+          "name": "vault_b",
+          "writable": true
+        },
+        {
+          "name": "src_a",
+          "writable": true
+        },
+        {
+          "name": "src_b",
+          "writable": true
+        },
+        {
+          "name": "token_program_a"
+        },
+        {
+          "name": "token_program_b"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_a",
+          "type": "u64"
+        },
+        {
+          "name": "amount_b",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "buy_yes",
+      "discriminator": [
+        124,
+        76,
+        113,
+        130,
+        177,
+        112,
+        187,
+        104
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "yes_mint",
+          "writable": true
+        },
+        {
+          "name": "market_vault",
+          "writable": true
+        },
+        {
+          "name": "user_src",
+          "writable": true
+        },
+        {
+          "name": "user_dst",
+          "writable": true
+        },
+        {
+          "name": "user_authority",
+          "signer": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_out",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "fund_market",
+      "discriminator": [
+        173,
+        177,
+        32,
+        57,
+        20,
+        248,
+        119,
+        160
+      ],
+      "accounts": [
+        {
+          "name": "funder",
+          "signer": true
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "src",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "init_outcome_market",
+      "discriminator": [
+        91,
+        224,
+        16,
+        99,
+        26,
+        107,
+        151,
+        111
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  117,
+                  116,
+                  99,
+                  111,
+                  109,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "event"
+              }
+            ]
+          }
+        },
+        {
+          "name": "event"
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "yes_mint"
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "yes_price_e6",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "init_pool",
+      "discriminator": [
+        116,
+        233,
+        199,
+        204,
+        115,
+        159,
+        171,
+        36
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "pool",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  111,
+                  108
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "pool_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint_a"
+        },
+        {
+          "name": "mint_b"
+        },
+        {
+          "name": "vault_a"
+        },
+        {
+          "name": "vault_b"
+        },
+        {
+          "name": "token_program_a"
+        },
+        {
+          "name": "token_program_b"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "pool_id",
+          "type": "u64"
+        },
+        {
+          "name": "fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "mode",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "redeem",
+      "docs": [
+        "Redeem YES tokens once the bound event is final: YES pays 1:1, VOID pays the purchase price, NO pays nothing."
+      ],
+      "discriminator": [
+        184,
+        12,
+        86,
+        149,
+        70,
+        196,
+        97,
+        225
+      ],
+      "accounts": [
+        {
+          "name": "market"
+        },
+        {
+          "name": "event"
+        },
+        {
+          "name": "collateral_mint"
+        },
+        {
+          "name": "yes_mint",
+          "writable": true
+        },
+        {
+          "name": "market_vault",
+          "writable": true
+        },
+        {
+          "name": "user_src",
+          "writable": true
+        },
+        {
+          "name": "user_dst",
+          "writable": true
+        },
+        {
+          "name": "user_authority",
+          "signer": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_out",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "swap",
+      "docs": [
+        "Swap `amount_in` of user_src's mint for the other side, delivering at least `min_out`."
+      ],
+      "discriminator": [
+        248,
+        198,
+        158,
+        145,
+        225,
+        117,
+        135,
+        200
+      ],
+      "accounts": [
+        {
+          "name": "pool"
+        },
+        {
+          "name": "mint_a"
+        },
+        {
+          "name": "mint_b"
+        },
+        {
+          "name": "vault_a",
+          "writable": true
+        },
+        {
+          "name": "vault_b",
+          "writable": true
+        },
+        {
+          "name": "user_src",
+          "writable": true
+        },
+        {
+          "name": "user_dst",
+          "writable": true
+        },
+        {
+          "name": "user_authority",
+          "signer": true
+        },
+        {
+          "name": "token_program_a"
+        },
+        {
+          "name": "token_program_b"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_in",
+          "type": "u64"
+        },
+        {
+          "name": "min_out",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "OutcomeMarket",
+      "discriminator": [
+        13,
+        214,
+        50,
+        253,
+        37,
+        48,
+        176,
+        44
+      ]
+    },
+    {
+      "name": "Pool",
+      "discriminator": [
+        241,
+        154,
+        109,
+        4,
+        17,
+        177,
+        109,
+        188
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidAccount"
+    },
+    {
+      "code": 6001,
+      "name": "SlippageExceeded"
+    },
+    {
+      "code": 6002,
+      "name": "NotSettled"
+    },
+    {
+      "code": 6003,
+      "name": "LosingOutcome"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidArgument"
+    }
+  ],
+  "types": [
+    {
+      "name": "OutcomeMarket",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "event",
+            "type": "pubkey"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "collateral_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "yes_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "collateral_decimals",
+            "type": "u8"
+          },
+          {
+            "name": "yes_price_e6",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Pool",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pool_id",
+            "type": "u64"
+          },
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint_a",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint_b",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_a",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_b",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_program_a",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_program_b",
+            "type": "pubkey"
+          },
+          {
+            "name": "decimals_a",
+            "type": "u8"
+          },
+          {
+            "name": "decimals_b",
+            "type": "u8"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "mode",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}

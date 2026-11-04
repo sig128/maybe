@@ -1,0 +1,110 @@
+/*
+ * MAYBE design tokens.
+ * Tone carries hierarchy (canvas → s1 → s2 → s3); borders are reserved for
+ * interactive grouping. Lime is the single accent: primary action and the
+ * current location only. Branch hues identify paths and never mean gain/loss.
+ * Contrast (WCAG 2.2, measured in docs/ACCESSIBILITY.md): text 16.6:1,
+ * text-2 7.9:1, text-3 5.6:1 on canvas; text-3 is ≥ 4.6:1 on s2.
+ */
+:root {
+  color-scheme: dark;
+
+  --c-canvas: #101110;
+  --c-nav: #0c0d0c;
+  --c-s1: #181a18;
+  --c-s2: #20231f;
+  --c-s3: #292d28;
+  --c-s4: #343932;
+  --c-line: rgb(241 243 236 / 0.07);
+  --c-line-2: rgb(241 243 236 / 0.13);
+  --c-line-3: rgb(241 243 236 / 0.22);
+
+  --c-text: #f1f3ec;
+  --c-text-2: #a3aa9c;
+  --c-text-3: #8e9688;
+
+  --c-accent: #c7ff6b;
+  --c-accent-hover: #d4ff8a;
+  --c-accent-press: #b2ec52;
+  --c-accent-ink: #11140c;
+  --c-accent-soft: rgb(199 255 107 / 0.1);
+  --c-accent-line: rgb(199 255 107 / 0.32);
+
+  --c-amber: #f2b84b;
+  --c-amber-soft: rgb(242 184 75 / 0.12);
+  --c-red: #ff6e61;
+  --c-red-soft: rgb(255 110 97 / 0.12);
+  --c-gain: #8fe3a6;
+  --c-loss: #ff8c80;
+
+  /* branch identity — deliberately no greens or reds */
+  --c-branch-1: #b7a3ff;
+  --c-branch-2: #7cc8f5;
+  --c-branch-3: #e9d18c;
+  --c-branch-4: #d7ddd0;
+
+  --f-sans: "Instrument Sans Variable", "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "Fragment Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* type scale (px / line-height) */
+  --t-micro: 12px;
+  --t-micro-lh: 16px;
+  --t-small: 13px;
+  --t-small-lh: 18px;
+  --t-body: 14px;
+  --t-body-lh: 21px;
+  --t-read: 15px;
+  --t-read-lh: 23px;
+  --t-head: 17px;
+  --t-head-lh: 24px;
+  --t-title: 22px;
+  --t-title-lh: 28px;
+  --t-display: 32px;
+  --t-display-lh: 36px;
+  --t-hero: 44px;
+  --t-hero-lh: 48px;
+
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --s-16: 64px;
+
+  /* radius follows hierarchy: chips < controls < panels < sheets */
+  --r-chip: 6px;
+  --r-control: 9px;
+  --r-panel: 14px;
+  --r-sheet: 18px;
+  --r-pill: 999px;
+
+  /* shadows only for things that float */
+  --e-pop: 0 14px 36px -10px rgb(0 0 0 / 0.65), 0 0 0 1px var(--c-line-2);
+  --e-overlay: 0 30px 80px -20px rgb(0 0 0 / 0.75), 0 0 0 1px var(--c-line-2);
+
+  --focus: 0 0 0 2px var(--c-canvas), 0 0 0 4px var(--c-text);
+
+  --m-fast: 140ms;
+  --m-base: 200ms;
+  --m-space: 300ms;
+  --ease-out: cubic-bezier(0.22, 0.8, 0.24, 1);
+  --ease-in-out: cubic-bezier(0.62, 0, 0.24, 1);
+
+  --nav-w: 228px;
+  --inspector-w: 432px;
+  --topbar-h: 56px;
+  --mobile-nav-h: 64px;
+  --content-max: 1180px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --m-fast: 0ms;
+    --m-base: 0ms;
+    --m-space: 0ms;
+  }
+}

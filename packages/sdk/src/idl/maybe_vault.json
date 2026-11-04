@@ -1,0 +1,2842 @@
+{
+  "address": "pUZiiWnMzroxAxPDJsjH337T5Fm9WNy92EiLNFGHgyy",
+  "metadata": {
+    "name": "maybe_vault",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "activate_strategy",
+      "docs": [
+        "Verify the uploaded bytes against the committed hash, validate the plan",
+        "and its accounts, and move the reservation from available to reserved.",
+        "Remaining accounts: every plan event in order, then every plan ref in order."
+      ],
+      "discriminator": [
+        149,
+        232,
+        177,
+        145,
+        240,
+        90,
+        2,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "strategy",
+          "writable": true
+        },
+        {
+          "name": "policy",
+          "writable": true,
+          "optional": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "adjudicate",
+      "docs": [
+        "Resolve a dispute with a super-threshold of the same attestor set. Only",
+        "chooses the outcome; it cannot move funds."
+      ],
+      "discriminator": [
+        220,
+        92,
+        1,
+        1,
+        229,
+        227,
+        143,
+        20
+      ],
+      "accounts": [
+        {
+          "name": "event",
+          "writable": true
+        },
+        {
+          "name": "attestor_set"
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "outcome",
+          "type": "u8"
+        },
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "expires_at",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "attest",
+      "docs": [
+        "Submit a threshold attestation. Signatures are verified by Ed25519",
+        "precompile instructions in the same transaction; this handler checks",
+        "that they cover exactly the domain-separated message, come from",
+        "distinct non-revoked keys of the bound set, and carry a fresh nonce."
+      ],
+      "discriminator": [
+        83,
+        148,
+        120,
+        119,
+        144,
+        139,
+        117,
+        160
+      ],
+      "accounts": [
+        {
+          "name": "event",
+          "writable": true
+        },
+        {
+          "name": "attestor_set"
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "instructions",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "outcome",
+          "type": "u8"
+        },
+        {
+          "name": "observed_at",
+          "type": "i64"
+        },
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "expires_at",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "cancel_strategy",
+      "discriminator": [
+        77,
+        41,
+        47,
+        20,
+        121,
+        209,
+        51,
+        169
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "strategy",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_completed",
+      "docs": [
+        "Remaining accounts: plan events in order, then receipt-referenced strategies."
+      ],
+      "discriminator": [
+        67,
+        58,
+        179,
+        9,
+        32,
+        146,
+        165,
+        44
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "strategy",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_expired",
+      "discriminator": [
+        138,
+        186,
+        164,
+        245,
+        32,
+        116,
+        162,
+        62
+      ],
+      "accounts": [
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "strategy",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_event",
+      "discriminator": [
+        49,
+        219,
+        29,
+        203,
+        22,
+        98,
+        100,
+        87
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "event",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  118,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "adapter"
+              },
+              {
+                "kind": "arg",
+                "path": "market_id_hash"
+              },
+              {
+                "kind": "arg",
+                "path": "rule_hash"
+              },
+              {
+                "kind": "account",
+                "path": "binding"
+              }
+            ]
+          }
+        },
+        {
+          "name": "binding"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "adapter",
+          "type": "u8"
+        },
+        {
+          "name": "venue",
+          "type": "u8"
+        },
+        {
+          "name": "market_id_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "rule_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "threshold",
+          "type": "u64"
+        },
+        {
+          "name": "deadline",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "create_policy",
+      "discriminator": [
+        27,
+        81,
+        33,
+        27,
+        196,
+        103,
+        246,
+        53
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault"
+        },
+        {
+          "name": "session_key"
+        },
+        {
+          "name": "policy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  108,
+                  105,
+                  99,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "session_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "PolicyArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_strategy",
+      "discriminator": [
+        152,
+        160,
+        107,
+        148,
+        245,
+        190,
+        127,
+        224
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "arg",
+                "path": "strategy_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "policy",
+          "optional": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "strategy_id",
+          "type": "u64"
+        },
+        {
+          "name": "version",
+          "type": "u32"
+        },
+        {
+          "name": "plan_len",
+          "type": "u16"
+        },
+        {
+          "name": "plan_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "deposit",
+      "discriminator": [
+        242,
+        35,
+        198,
+        137,
+        82,
+        225,
+        242,
+        182
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "source",
+          "writable": true
+        },
+        {
+          "name": "vault_token_account",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "disable_dev_attestors",
+      "docs": [
+        "One-way switch: once development attestors are disabled they can never be",
+        "re-enabled for this deployment (production configs start disabled)."
+      ],
+      "discriminator": [
+        118,
+        45,
+        90,
+        18,
+        113,
+        64,
+        105,
+        137
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_action",
+      "docs": [
+        "Permissionless crank. Executes run `run` of action `action` only if the",
+        "committed plan allows it right now. Remaining accounts: plan events in",
+        "order, receipt-referenced strategies (ascending ref index), then the",
+        "action accounts documented in docs/INTERFACE_CONTRACT.md §6."
+      ],
+      "discriminator": [
+        246,
+        137,
+        105,
+        113,
+        247,
+        6,
+        223,
+        174
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "strategy",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "action",
+          "type": "u8"
+        },
+        {
+          "name": "run",
+          "type": "u16"
+        },
+        {
+          "name": "expected_plan_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "finalize_event",
+      "docs": [
+        "Persist lazy finality (optional: execution already treats an elapsed challenge window as final)."
+      ],
+      "discriminator": [
+        88,
+        246,
+        123,
+        105,
+        100,
+        148,
+        170,
+        236
+      ],
+      "accounts": [
+        {
+          "name": "event",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_attestor_set",
+      "discriminator": [
+        239,
+        139,
+        70,
+        226,
+        171,
+        69,
+        156,
+        46
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "attestor_set",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  116,
+                  116,
+                  101,
+                  115,
+                  116,
+                  111,
+                  114,
+                  115
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "set_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "set_id",
+          "type": "u64"
+        },
+        {
+          "name": "keys",
+          "type": {
+            "vec": "pubkey"
+          }
+        },
+        {
+          "name": "threshold",
+          "type": "u8"
+        },
+        {
+          "name": "adjudication_threshold",
+          "type": "u8"
+        },
+        {
+          "name": "challenge_seconds",
+          "type": "u32"
+        },
+        {
+          "name": "dispute_timeout_seconds",
+          "type": "u32"
+        },
+        {
+          "name": "is_dev",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "init_config",
+      "discriminator": [
+        23,
+        235,
+        115,
+        232,
+        168,
+        96,
+        1,
+        231
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "max_fee_bps_cap",
+          "type": "u16"
+        },
+        {
+          "name": "allow_dev_attestors",
+          "type": "bool"
+        },
+        {
+          "name": "treasury_owner",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "init_vault",
+      "discriminator": [
+        77,
+        79,
+        85,
+        150,
+        33,
+        217,
+        52,
+        106
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "kill_switch",
+      "docs": [
+        "Kill switch: voids every agent policy of this vault at once. Withdrawals unaffected."
+      ],
+      "discriminator": [
+        189,
+        76,
+        222,
+        157,
+        130,
+        131,
+        241,
+        144
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "observe_balance",
+      "docs": [
+        "Objective adapter: anyone may submit an observation of the watched token",
+        "account. YES the first time balance >= threshold at or before the deadline."
+      ],
+      "discriminator": [
+        251,
+        151,
+        21,
+        6,
+        134,
+        69,
+        76,
+        206
+      ],
+      "accounts": [
+        {
+          "name": "event",
+          "writable": true
+        },
+        {
+          "name": "watched"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "pause_strategy",
+      "discriminator": [
+        5,
+        152,
+        57,
+        45,
+        48,
+        169,
+        44,
+        247
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "strategy",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "paused",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "register_mint",
+      "docs": [
+        "Record the vault's canonical token account for an enabled asset (permissionless, idempotent)."
+      ],
+      "discriminator": [
+        242,
+        43,
+        74,
+        162,
+        217,
+        214,
+        191,
+        171
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "vault_token_account"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "revoke_attestor",
+      "discriminator": [
+        185,
+        12,
+        191,
+        140,
+        144,
+        112,
+        102,
+        154
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "attestor_set",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "index",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "revoke_policy",
+      "discriminator": [
+        49,
+        221,
+        179,
+        43,
+        154,
+        148,
+        35,
+        4
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "policy",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "set_asset",
+      "docs": [
+        "List or delist an asset. Validates the token program and the Token-2022",
+        "extension allowlist; records decimals and the fee treasury account."
+      ],
+      "discriminator": [
+        243,
+        216,
+        48,
+        30,
+        63,
+        58,
+        91,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "treasury"
+        }
+      ],
+      "args": [
+        {
+          "name": "enabled",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "set_paused",
+      "docs": [
+        "Emergency pause of NEW executions only. Withdrawals, cancellations,",
+        "releases at expiry and refunds are never paused."
+      ],
+      "discriminator": [
+        91,
+        60,
+        125,
+        192,
+        176,
+        225,
+        166,
+        218
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "paused",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "set_route",
+      "discriminator": [
+        244,
+        231,
+        3,
+        84,
+        233,
+        61,
+        146,
+        149
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "kind",
+          "type": "u8"
+        },
+        {
+          "name": "program_id",
+          "type": "pubkey"
+        },
+        {
+          "name": "enabled",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "void_disputed",
+      "docs": [
+        "An unadjudicated dispute becomes VOID after the set's timeout."
+      ],
+      "discriminator": [
+        152,
+        183,
+        118,
+        52,
+        86,
+        17,
+        240,
+        3
+      ],
+      "accounts": [
+        {
+          "name": "event",
+          "writable": true
+        },
+        {
+          "name": "attestor_set"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "withdraw",
+      "docs": [
+        "Withdraw uncommitted funds. Owner only (never an agent session key);",
+        "never blocked by the emergency pause."
+      ],
+      "discriminator": [
+        183,
+        18,
+        70,
+        156,
+        148,
+        109,
+        161,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "vault_token_account",
+          "writable": true
+        },
+        {
+          "name": "destination",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "write_plan",
+      "discriminator": [
+        68,
+        218,
+        158,
+        229,
+        123,
+        72,
+        154,
+        110
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "signer": true
+        },
+        {
+          "name": "strategy",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "offset",
+          "type": "u16"
+        },
+        {
+          "name": "data",
+          "type": "bytes"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "AttestorSet",
+      "discriminator": [
+        202,
+        26,
+        217,
+        84,
+        207,
+        111,
+        64,
+        117
+      ]
+    },
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "OutcomeEvent",
+      "discriminator": [
+        118,
+        148,
+        28,
+        172,
+        223,
+        232,
+        149,
+        12
+      ]
+    },
+    {
+      "name": "Policy",
+      "discriminator": [
+        222,
+        135,
+        7,
+        163,
+        235,
+        177,
+        33,
+        68
+      ]
+    },
+    {
+      "name": "Strategy",
+      "discriminator": [
+        174,
+        110,
+        39,
+        119,
+        82,
+        106,
+        169,
+        102
+      ]
+    },
+    {
+      "name": "Vault",
+      "discriminator": [
+        211,
+        8,
+        232,
+        43,
+        2,
+        152,
+        117,
+        119
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "Deposited",
+      "discriminator": [
+        111,
+        141,
+        26,
+        45,
+        161,
+        35,
+        100,
+        57
+      ]
+    },
+    {
+      "name": "EventResolved",
+      "discriminator": [
+        10,
+        219,
+        196,
+        209,
+        32,
+        58,
+        80,
+        212
+      ]
+    },
+    {
+      "name": "ExecutionReceipt",
+      "discriminator": [
+        70,
+        134,
+        188,
+        121,
+        115,
+        93,
+        217,
+        128
+      ]
+    },
+    {
+      "name": "PolicyChanged",
+      "discriminator": [
+        248,
+        184,
+        113,
+        45,
+        123,
+        255,
+        43,
+        248
+      ]
+    },
+    {
+      "name": "StrategyActivated",
+      "discriminator": [
+        108,
+        90,
+        218,
+        150,
+        40,
+        127,
+        64,
+        50
+      ]
+    },
+    {
+      "name": "StrategyClosed",
+      "discriminator": [
+        168,
+        163,
+        135,
+        255,
+        218,
+        189,
+        204,
+        196
+      ]
+    },
+    {
+      "name": "Withdrawn",
+      "discriminator": [
+        20,
+        89,
+        223,
+        198,
+        194,
+        124,
+        219,
+        13
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "BadMagic"
+    },
+    {
+      "code": 6001,
+      "name": "BadVersion"
+    },
+    {
+      "code": 6002,
+      "name": "Truncated"
+    },
+    {
+      "code": 6003,
+      "name": "TrailingBytes"
+    },
+    {
+      "code": 6004,
+      "name": "TooLarge"
+    },
+    {
+      "code": 6005,
+      "name": "NonCanonical"
+    },
+    {
+      "code": 6006,
+      "name": "CountOutOfRange"
+    },
+    {
+      "code": 6007,
+      "name": "DuplicateEntry"
+    },
+    {
+      "code": 6008,
+      "name": "IndexOutOfRange"
+    },
+    {
+      "code": 6009,
+      "name": "NotTopological"
+    },
+    {
+      "code": 6010,
+      "name": "BadNode"
+    },
+    {
+      "code": 6011,
+      "name": "BadAction"
+    },
+    {
+      "code": 6012,
+      "name": "BadAmount"
+    },
+    {
+      "code": 6013,
+      "name": "FeeTooHigh"
+    },
+    {
+      "code": 6014,
+      "name": "BadSchedule"
+    },
+    {
+      "code": 6015,
+      "name": "BadDeadline"
+    },
+    {
+      "code": 6016,
+      "name": "DepthExceeded"
+    },
+    {
+      "code": 6017,
+      "name": "BadFlags"
+    },
+    {
+      "code": 6018,
+      "name": "NotActive"
+    },
+    {
+      "code": 6019,
+      "name": "StrategyPaused"
+    },
+    {
+      "code": 6020,
+      "name": "StrategyClosed"
+    },
+    {
+      "code": 6021,
+      "name": "ExecutionPaused"
+    },
+    {
+      "code": 6022,
+      "name": "PlanHashMismatch"
+    },
+    {
+      "code": 6023,
+      "name": "ActionComplete"
+    },
+    {
+      "code": 6024,
+      "name": "DeadlinePassed"
+    },
+    {
+      "code": 6025,
+      "name": "BranchLost"
+    },
+    {
+      "code": 6026,
+      "name": "GuardPending"
+    },
+    {
+      "code": 6027,
+      "name": "GuardFalse"
+    },
+    {
+      "code": 6028,
+      "name": "DelayPending"
+    },
+    {
+      "code": 6029,
+      "name": "RunNotDue"
+    },
+    {
+      "code": 6030,
+      "name": "RunOutOfOrder"
+    },
+    {
+      "code": 6031,
+      "name": "AmountZero"
+    },
+    {
+      "code": 6032,
+      "name": "InsufficientAllocation"
+    },
+    {
+      "code": 6033,
+      "name": "RouteFailed"
+    },
+    {
+      "code": 6034,
+      "name": "RouteDeltaViolation"
+    },
+    {
+      "code": 6035,
+      "name": "MinOutNotMet"
+    },
+    {
+      "code": 6036,
+      "name": "NotOwner"
+    },
+    {
+      "code": 6037,
+      "name": "CancelLocked"
+    },
+    {
+      "code": 6038,
+      "name": "NotExpired"
+    },
+    {
+      "code": 6039,
+      "name": "NotComplete"
+    },
+    {
+      "code": 6040,
+      "name": "ExpiryInPast"
+    },
+    {
+      "code": 6041,
+      "name": "DurationTooLong"
+    },
+    {
+      "code": 6042,
+      "name": "FeeAboveCap"
+    },
+    {
+      "code": 6043,
+      "name": "MintNotAllowed"
+    },
+    {
+      "code": 6044,
+      "name": "InsufficientAvailable"
+    },
+    {
+      "code": 6045,
+      "name": "BadPlan"
+    },
+    {
+      "code": 6046,
+      "name": "Overflow"
+    },
+    {
+      "code": 6047,
+      "name": "UnsupportedTokenExtension"
+    },
+    {
+      "code": 6048,
+      "name": "AssetNotEnabled"
+    },
+    {
+      "code": 6049,
+      "name": "RouteNotEnabled"
+    },
+    {
+      "code": 6050,
+      "name": "RouteAccountMismatch"
+    },
+    {
+      "code": 6051,
+      "name": "ForeignVaultAccountInRoute"
+    },
+    {
+      "code": 6052,
+      "name": "AttestationInvalid"
+    },
+    {
+      "code": 6053,
+      "name": "AttestationReplay"
+    },
+    {
+      "code": 6054,
+      "name": "AttestationExpired"
+    },
+    {
+      "code": 6055,
+      "name": "DevAttestorForbidden"
+    },
+    {
+      "code": 6056,
+      "name": "PolicyViolation"
+    },
+    {
+      "code": 6057,
+      "name": "PolicyRevoked"
+    },
+    {
+      "code": 6058,
+      "name": "PlanHashInvalid"
+    },
+    {
+      "code": 6059,
+      "name": "PlanIncomplete"
+    },
+    {
+      "code": 6060,
+      "name": "Unauthorized"
+    },
+    {
+      "code": 6061,
+      "name": "InvalidAccount"
+    },
+    {
+      "code": 6062,
+      "name": "InvalidEventState"
+    },
+    {
+      "code": 6063,
+      "name": "TooManyEntries"
+    },
+    {
+      "code": 6064,
+      "name": "InvalidArgument"
+    },
+    {
+      "code": 6065,
+      "name": "EventMismatch"
+    },
+    {
+      "code": 6066,
+      "name": "TokenAccountMismatch"
+    },
+    {
+      "code": 6067,
+      "name": "MintNotRegistered"
+    },
+    {
+      "code": 6068,
+      "name": "ThresholdNotMet"
+    },
+    {
+      "code": 6069,
+      "name": "DepositMismatch"
+    }
+  ],
+  "types": [
+    {
+      "name": "ActionStateZc",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "first_executed_at",
+            "type": "i64"
+          },
+          {
+            "name": "last_executed_at",
+            "type": "i64"
+          },
+          {
+            "name": "received",
+            "type": "u64"
+          },
+          {
+            "name": "spent",
+            "type": "u64"
+          },
+          {
+            "name": "fees",
+            "type": "u64"
+          },
+          {
+            "name": "runs_done",
+            "type": "u16"
+          },
+          {
+            "name": "executed_runs",
+            "type": "u16"
+          },
+          {
+            "name": "_pad",
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AssetEntry",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "docs": [
+              "fee destination token account for this mint"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "enabled",
+            "type": "u8"
+          },
+          {
+            "name": "_pad",
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AttestorSet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "set_id",
+            "type": "u64"
+          },
+          {
+            "name": "keys",
+            "type": {
+              "array": [
+                "pubkey",
+                5
+              ]
+            }
+          },
+          {
+            "name": "n_keys",
+            "type": "u8"
+          },
+          {
+            "name": "threshold",
+            "type": "u8"
+          },
+          {
+            "name": "adjudication_threshold",
+            "type": "u8"
+          },
+          {
+            "name": "revoked",
+            "docs": [
+              "bitmap over key indices"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "is_dev",
+            "type": "bool"
+          },
+          {
+            "name": "challenge_seconds",
+            "type": "u32"
+          },
+          {
+            "name": "dispute_timeout_seconds",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "docs": [
+        "Global configuration. The admin can list assets / routes / attestor sets",
+        "and pause NEW executions. The admin has no instruction that moves vault",
+        "funds, edits plans, or blocks withdrawals, cancellations or refunds."
+      ],
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "max_fee_bps_cap",
+            "type": "u16"
+          },
+          {
+            "name": "allow_dev_attestors",
+            "type": "u8"
+          },
+          {
+            "name": "paused_execution",
+            "type": "u8"
+          },
+          {
+            "name": "n_assets",
+            "type": "u8"
+          },
+          {
+            "name": "n_routes",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "_pad",
+            "type": "u8"
+          },
+          {
+            "name": "assets",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "AssetEntry"
+                  }
+                },
+                16
+              ]
+            }
+          },
+          {
+            "name": "routes",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "RouteEntry"
+                  }
+                },
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Deposited",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EventResolved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "event",
+            "type": "pubkey"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "final_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ExecutionReceipt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "strategy",
+            "type": "pubkey"
+          },
+          {
+            "name": "plan_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "action",
+            "type": "u8"
+          },
+          {
+            "name": "run",
+            "type": "u16"
+          },
+          {
+            "name": "skipped_runs",
+            "type": "u16"
+          },
+          {
+            "name": "exec_nonce",
+            "type": "u64"
+          },
+          {
+            "name": "at",
+            "type": "i64"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "in_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "out_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "amount_in",
+            "type": "u64"
+          },
+          {
+            "name": "amount_out",
+            "type": "u64"
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MintBalance",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "token_account",
+            "docs": [
+              "canonical ATA(vault, mint, token_program)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "available",
+            "type": "u64"
+          },
+          {
+            "name": "reserved",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OutcomeEvent",
+      "docs": [
+        "Canonical outcome registry entry. Its address commits to the adapter, the",
+        "venue market id, the rule version and the resolver binding."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "adapter",
+            "type": "u8"
+          },
+          {
+            "name": "venue",
+            "type": "u8"
+          },
+          {
+            "name": "market_id_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "rule_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "binding",
+            "docs": [
+              "attestor set (attestation) or watched token account (balance)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "outcome",
+            "type": "u8"
+          },
+          {
+            "name": "proposed_at",
+            "type": "i64"
+          },
+          {
+            "name": "final_at",
+            "type": "i64"
+          },
+          {
+            "name": "disputed_at",
+            "type": "i64"
+          },
+          {
+            "name": "last_nonce",
+            "type": "u64"
+          },
+          {
+            "name": "threshold",
+            "type": "u64"
+          },
+          {
+            "name": "deadline",
+            "type": "i64"
+          },
+          {
+            "name": "watched_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Policy",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "session_key",
+            "type": "pubkey"
+          },
+          {
+            "name": "allowed_mints",
+            "type": {
+              "array": [
+                "pubkey",
+                6
+              ]
+            }
+          },
+          {
+            "name": "allowed_routes",
+            "type": {
+              "array": [
+                "pubkey",
+                6
+              ]
+            }
+          },
+          {
+            "name": "allowed_recipients",
+            "type": {
+              "array": [
+                "pubkey",
+                4
+              ]
+            }
+          },
+          {
+            "name": "max_total",
+            "type": {
+              "array": [
+                "u64",
+                6
+              ]
+            }
+          },
+          {
+            "name": "max_per_action",
+            "type": {
+              "array": [
+                "u64",
+                6
+              ]
+            }
+          },
+          {
+            "name": "spent",
+            "type": {
+              "array": [
+                "u64",
+                6
+              ]
+            }
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "epoch",
+            "type": "u32"
+          },
+          {
+            "name": "max_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "n_mints",
+            "type": "u8"
+          },
+          {
+            "name": "n_routes",
+            "type": "u8"
+          },
+          {
+            "name": "n_recipients",
+            "type": "u8"
+          },
+          {
+            "name": "can_create",
+            "type": "u8"
+          },
+          {
+            "name": "can_cancel",
+            "type": "u8"
+          },
+          {
+            "name": "revoked",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "_pad",
+            "type": {
+              "array": [
+                "u8",
+                3
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PolicyArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mints",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "max_total",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "max_per_action",
+            "type": {
+              "vec": "u64"
+            }
+          },
+          {
+            "name": "routes",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "recipients",
+            "type": {
+              "vec": "pubkey"
+            }
+          },
+          {
+            "name": "max_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "can_create",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PolicyChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "policy",
+            "type": "pubkey"
+          },
+          {
+            "name": "revoked",
+            "type": "bool"
+          },
+          {
+            "name": "epoch",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RouteEntry",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "program_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "kind",
+            "type": "u8"
+          },
+          {
+            "name": "enabled",
+            "type": "u8"
+          },
+          {
+            "name": "_pad",
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Strategy",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "docs": [
+              "signer that created the plan (owner or an agent session key)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "policy",
+            "docs": [
+              "policy account when created by a session key, default otherwise"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "plan_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "strategy_id",
+            "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "activated_at",
+            "type": "i64"
+          },
+          {
+            "name": "closed_at",
+            "type": "i64"
+          },
+          {
+            "name": "exec_nonce",
+            "type": "u64"
+          },
+          {
+            "name": "version",
+            "type": "u32"
+          },
+          {
+            "name": "plan_len",
+            "type": "u16"
+          },
+          {
+            "name": "written",
+            "type": "u16"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "group_claims",
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          },
+          {
+            "name": "_pad0",
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          },
+          {
+            "name": "holdings",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u64",
+                    6
+                  ]
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "actions",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "ActionStateZc"
+                  }
+                },
+                12
+              ]
+            }
+          },
+          {
+            "name": "plan",
+            "type": {
+              "array": [
+                "u8",
+                2600
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "StrategyActivated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "strategy",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "plan_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "reserved",
+            "type": {
+              "array": [
+                "u64",
+                6
+              ]
+            }
+          },
+          {
+            "name": "by_policy",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StrategyClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "strategy",
+            "type": "pubkey"
+          },
+          {
+            "name": "mode",
+            "type": "u8"
+          },
+          {
+            "name": "refunded",
+            "type": {
+              "array": [
+                "u64",
+                6
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Vault",
+      "serialization": "bytemuck",
+      "repr": {
+        "kind": "c"
+      },
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault_id",
+            "type": "u64"
+          },
+          {
+            "name": "strategy_count",
+            "type": "u64"
+          },
+          {
+            "name": "policy_epoch",
+            "type": "u32"
+          },
+          {
+            "name": "n_balances",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "_pad",
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "balances",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "MintBalance"
+                  }
+                },
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Withdrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

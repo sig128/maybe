@@ -1,0 +1,13 @@
+[package]
+name = "maybe-logic"
+version = "0.1.0"
+edition.workspace = true
+description = "Pure, host-testable MAYBE plan semantics shared by the vault program (no Solana dependencies)."
+
+[lib]
+name = "maybe_logic"
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"

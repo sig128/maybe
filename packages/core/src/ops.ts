@@ -26,6 +26,12 @@ export type Op =
   | { op: "setThreshold"; nodeId: string; k: number }
   | { op: "setVetoWindow"; nodeId: string; windowSeconds: number }
   | { op: "addNode"; node: PredicateNode }
+  | { op: "replaceNode"; node: PredicateNode }
+  | { op: "addAllocation"; allocation: Strategy["allocations"][number] }
+  | { op: "removeAllocation"; allocationId: string }
+  | { op: "setMaxFee"; maxFeeBps: number }
+  | { op: "setCancelPolicy"; cancelPolicy: Strategy["cancelPolicy"] }
+  | { op: "replaceAction"; action: Action }
   | { op: "removeNode"; nodeId: string }
   | { op: "addAction"; action: Action }
   | { op: "removeAction"; actionId: string }
@@ -99,6 +105,18 @@ export function applyOp(doc: Strategy, op: Op): Strategy {
       return mapNode(doc, op.nodeId, (n) => (n.kind === "veto" ? { ...n, windowSeconds: op.windowSeconds } : n));
     case "addNode":
       return { ...doc, nodes: [...doc.nodes, op.node] };
+    case "replaceNode":
+      return { ...doc, nodes: doc.nodes.map((n) => (n.id === op.node.id ? op.node : n)) };
+    case "addAllocation":
+      return { ...doc, allocations: [...doc.allocations, op.allocation] };
+    case "removeAllocation":
+      return { ...doc, allocations: doc.allocations.filter((a) => a.id !== op.allocationId), actions: doc.actions.filter((a) => a.allocation !== op.allocationId) };
+    case "setMaxFee":
+      return { ...doc, maxFeeBps: op.maxFeeBps };
+    case "setCancelPolicy":
+      return { ...doc, cancelPolicy: op.cancelPolicy };
+    case "replaceAction":
+      return { ...doc, actions: doc.actions.map((a) => (a.id === op.action.id ? op.action : a)) };
     case "removeNode":
       return { ...doc, nodes: doc.nodes.filter((n) => n.id !== op.nodeId) };
     case "addAction":

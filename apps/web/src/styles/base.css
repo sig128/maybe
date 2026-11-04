@@ -1,0 +1,212 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--c-canvas);
+  color: var(--c-text);
+  font-family: var(--f-sans);
+  font-size: var(--t-body);
+  line-height: var(--t-body-lh);
+  font-weight: 420;
+  font-variation-settings: "wdth" 100;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01", "cv11";
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+ul,
+ol,
+dl,
+dd,
+figure {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a.link,
+.prose a {
+  color: var(--c-text);
+  text-decoration: underline;
+  text-decoration-color: var(--c-line-3);
+  text-underline-offset: 3px;
+}
+
+a.link:hover,
+.prose a:hover {
+  text-decoration-color: var(--c-text);
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  box-shadow: var(--focus);
+  border-radius: var(--r-chip);
+}
+
+::selection {
+  background: rgb(199 255 107 / 0.28);
+  color: var(--c-text);
+}
+
+/* numbers: amounts and identifiers use the mono face with tabular figures */
+.num,
+.mono {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  letter-spacing: -0.01em;
+}
+
+.mono {
+  font-size: 0.92em;
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: var(--s-3);
+  top: -60px;
+  z-index: 100;
+  background: var(--c-text);
+  color: var(--c-canvas);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-control);
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  top: var(--s-3);
+}
+
+/* scrollbars stay quiet */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-s4) transparent;
+}
+
+/* text roles */
+.t-hero {
+  font-size: var(--t-hero);
+  line-height: var(--t-hero-lh);
+  font-weight: 560;
+  letter-spacing: -0.03em;
+}
+.t-display {
+  font-size: var(--t-display);
+  line-height: var(--t-display-lh);
+  font-weight: 560;
+  letter-spacing: -0.025em;
+}
+.t-title {
+  font-size: var(--t-title);
+  line-height: var(--t-title-lh);
+  font-weight: 580;
+  letter-spacing: -0.015em;
+}
+.t-head {
+  font-size: var(--t-head);
+  line-height: var(--t-head-lh);
+  font-weight: 580;
+  letter-spacing: -0.01em;
+}
+.t-read {
+  font-size: var(--t-read);
+  line-height: var(--t-read-lh);
+}
+.t-small {
+  font-size: var(--t-small);
+  line-height: var(--t-small-lh);
+}
+.t-micro {
+  font-size: var(--t-micro);
+  line-height: var(--t-micro-lh);
+}
+.muted {
+  color: var(--c-text-2);
+}
+.faint {
+  color: var(--c-text-3);
+}
+.condensed {
+  font-variation-settings: "wdth" 84;
+}
+.strong {
+  font-weight: 600;
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+.nowrap {
+  white-space: nowrap;
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.measure {
+  max-width: 68ch;
+}
