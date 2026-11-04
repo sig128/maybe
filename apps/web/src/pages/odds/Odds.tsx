@@ -112,6 +112,9 @@ function TabCount({ stage }: { stage: Stage }) {
 
 function Column({ stage, title, hint, stake, query, rowH, onOpen, onVisible, paused }: { stage: Stage; title: string; tab: string; hint: string; stake: number; query: string; rowH: number; onOpen: (m: string) => void; onVisible: (stage: Stage, mints: string[]) => void; paused: boolean }) {
   const live = useColumn(stage);
+  const status = useLiveStatus();
+  // placeholders only while the first data is on its way; after that an empty column is just empty
+  const connecting = status.feed.state !== "live" || Date.now() - status.startedAt < 6000;
   const [frozen, setFrozen] = useState<string[] | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const engine = liveEngine();
@@ -184,8 +187,12 @@ function Column({ stage, title, hint, stake, query, rowH, onOpen, onVisible, pau
       <div className="ocol-list" ref={scrollRef} tabIndex={0} onScroll={(e) => (e.currentTarget.scrollTop > 8) !== hold.current.scrolled && set({ scrolled: e.currentTarget.scrollTop > 8 })}>
         {shown.length === 0 ? (
           <div className="ocol-empty">
-            <span className="oskel" aria-hidden="true" />
-            <span className="oskel" aria-hidden="true" />
+            {connecting && (
+              <>
+                <span className="oskel" aria-hidden="true" />
+                <span className="oskel" aria-hidden="true" />
+              </>
+            )}
             <span className="t-small muted">{query ? "Nothing matches that search." : stage === "new" ? "Waiting for the next pump.fun launch…" : stage === "stretch" ? "Nothing is past 55% of its curve right now." : "Graduations appear here the moment a curve fills."}</span>
           </div>
         ) : (

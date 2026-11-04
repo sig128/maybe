@@ -467,14 +467,14 @@ export class LiveEngine {
   private async seed(attempt = 0): Promise<void> {
     try {
       // either list alone still seeds the board; one that failed is tried again a little later
-      const [recentR, tradedR] = await Promise.allSettled([this.jup.list("recent"), this.jup.list("toptraded/5m", 60)]);
-      const recent = recentR.status === "fulfilled" ? recentR.value : [];
-      const traded = tradedR.status === "fulfilled" ? tradedR.value : [];
-      if ((recentR.status === "rejected" || tradedR.status === "rejected") && attempt < 2 && this.started) {
+      // busy curves near the top of these lists are the ones most likely to be in their final stretch
+      const lists = await Promise.allSettled([this.jup.list("recent"), this.jup.list("toptraded/5m", 100), this.jup.list("toptrending/5m", 100)]);
+      const [recent, traded, trending] = lists.map((r) => (r.status === "fulfilled" && Array.isArray(r.value) ? r.value : []));
+      if (lists.some((r) => r.status === "rejected") && attempt < 2 && this.started) {
         setTimeout(() => void this.seed(attempt + 1), 12_000);
       }
       const seen = new Set<string>();
-      const all = [...traded, ...recent].filter((x) => x.launchpad === "pump.fun" && !seen.has(x.id) && seen.add(x.id));
+      const all = [...traded!, ...trending!, ...recent!].filter((x) => x.launchpad === "pump.fun" && !seen.has(x.id) && seen.add(x.id));
       const onCurve = all.filter((x) => !x.graduatedPool);
       const graduated = all.filter((x) => x.graduatedPool && Date.now() - ms(x.graduatedAt) < 3 * 3600_000);
       const now = Date.now();
