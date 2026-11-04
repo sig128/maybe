@@ -1,0 +1,20 @@
+{
+  "name": "@maybe/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MAYBE strategy language, compiler, plan encoding, execution engine, simulator, ledger and state machines. Shared by web, server, agents and SDK.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fixtures": "./src/fixtures/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "fixtures:conformance": "tsx scripts/write-conformance.ts"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.4.0",
+    "bs58": "6.0.0",
+    "zod": "4.6.7"
+  }
+}

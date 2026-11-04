@@ -1,0 +1,33 @@
+{
+  "name": "maybe",
+  "private": true,
+  "version": "0.1.0",
+  "description": "MAYBE — programmable futures for your money. Monorepo: strategy engine, web app, API/workers, Solana programs.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @maybe/web dev",
+    "dev:local": "tsx scripts/dev-local.ts",
+    "build": "pnpm --filter @maybe/web build",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:programs": "bash scripts/test-programs.sh",
+    "e2e:chain": "tsx scripts/e2e-chain.ts",
+    "e2e:browser": "pnpm --filter @maybe/web e2e",
+    "validator": "bash scripts/validator.sh",
+    "db:migrate": "pnpm --filter @maybe/server db:migrate",
+    "db:seed": "pnpm --filter @maybe/server db:seed"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1",
+    "fast-check": "4.10.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}
