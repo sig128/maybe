@@ -31,7 +31,7 @@ function segments(p: Portfolio, assets: Map<string, AssetInfo>): Segment[] {
     .filter(([, b]) => b.available > 0n)
     .map(([mint, b]) => ({ mint, units: b.available }));
   const segs: Segment[] = [
-    { key: "wallet", label: "In your wallet", usd: sum(wallet), color: "var(--c-s4)", lines: wallet, hint: "Outside MAYBE", to: "/money" },
+    { key: "wallet", label: "In your wallet", usd: sum(wallet), color: "var(--c-s4)", lines: wallet, hint: "Not in your vault yet", to: "/money" },
     { key: "available", label: "Available in vault", usd: sum(available), color: "var(--c-text)", lines: available, hint: "Uncommitted · withdrawable", to: "/money" },
   ];
   p.strategies
@@ -76,7 +76,7 @@ export function Overview() {
     <div className="page">
       <section className="stack-loose" aria-labelledby="where">
         <div className="row row-wrap" style={{ alignItems: "flex-end" }}>
-          <div className="stack-tight grow">
+          <div className="stack-tight" style={{ flex: "1 1 320px", minWidth: 0 }}>
             <h2 id="where" className="t-head muted" style={{ fontWeight: 520 }}>
               Where your money is
             </h2>
@@ -109,7 +109,7 @@ export function Overview() {
           </div>
           <div className="strip-legend">
             {segs.map((s) => (
-              <Link key={s.key} to={s.to ?? "#"} className="strip-key" aria-label={`${s.label}, ${formatUsd(s.usd)}`}>
+              <Link key={s.key} to={s.to ?? "#"} className="strip-key">
                 <span className="row-tight t-small muted">
                   <span className={`swatch ${s.hatched ? "swatch-hatched" : ""}`} style={{ background: s.hatched ? undefined : s.color }} />
                   <span className="truncate">{s.label}</span>

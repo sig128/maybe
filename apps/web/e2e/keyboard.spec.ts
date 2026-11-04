@@ -48,6 +48,7 @@ test("review can be completed with the keyboard alone; Escape cancels the signat
   await page.keyboard.press("Enter");
   await page.waitForURL(/\/review/);
   const boxes = page.locator(".check-row input");
+  await expect(boxes).toHaveCount(2);
   for (const b of await boxes.all()) {
     await b.focus();
     await page.keyboard.press("Space");

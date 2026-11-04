@@ -63,7 +63,9 @@ async function validatorUp(): Promise<boolean> {
   }
 }
 const book = loadLocalnetBook();
-const ready = (await validatorUp()) && book !== null;
+// These tests resolve events and finally disable the dev attestors, so they need a freshly seeded
+// validator: scripts/test-programs.sh provides one and sets MAYBE_LOCALNET_TESTS=1.
+const ready = process.env.MAYBE_LOCALNET_TESTS === "1" && (await validatorUp()) && book !== null;
 if (!ready) console.warn("[sdk localnet tests] SKIPPED: no validator on " + RPC + " or no .localnet/localnet.json — run scripts/validator.sh && npx tsx scripts/localnet-setup.ts");
 
 const T = { timeout: 180_000 };

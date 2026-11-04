@@ -47,7 +47,7 @@ export function Ops() {
             Nothing pending.
           </p>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="scroll-x" role="region" aria-label="Pending steps (scrolls sideways)" tabIndex={0}>
             <table className="table">
               <thead>
                 <tr>
@@ -122,7 +122,7 @@ export function Settings() {
         <h3 className="t-head" style={{ padding: "16px 20px 0" }}>
           Venues
         </h3>
-        <div style={{ overflowX: "auto" }}>
+        <div className="scroll-x" role="region" aria-label="Venues (scrolls sideways)" tabIndex={0}>
           <table className="table">
             <thead>
               <tr>
@@ -160,7 +160,7 @@ export function Settings() {
         <h3 className="t-head" style={{ padding: "16px 20px 0" }}>
           Tokens a vault accepts
         </h3>
-        <div style={{ overflowX: "auto" }}>
+        <div className="scroll-x" role="region" aria-label="Tokens a vault accepts (scrolls sideways)" tabIndex={0}>
           <table className="table">
             <thead>
               <tr>

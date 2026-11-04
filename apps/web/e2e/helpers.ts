@@ -2,12 +2,10 @@ import { expect, type Page } from "@playwright/test";
 
 /** Snapshot of the simulation's persisted state (balances, activity) straight from storage. */
 export async function simState(page: Page): Promise<{ vault: { balances: Record<string, { available: unknown; reserved: unknown }> }; activity: Array<{ kind: string; title: string }>; strategies: Record<string, { status: string; doc: { title: string; allocations: Array<{ amount: string }> } }> }> {
-  await page.waitForTimeout(150); // persistence is batched to the next microtask
-  return page.evaluate(() => {
-    const raw = localStorage.getItem("maybe.sim.v2");
-    if (!raw) throw new Error("no simulation state");
-    return JSON.parse(raw, (_k, v) => (v && typeof v === "object" && "$b" in v ? String(v.$b) : v));
-  });
+  // persistence is batched (and the first save happens on the first keeper tick)
+  await page.waitForFunction(() => !!localStorage.getItem("maybe.sim.v2"), undefined, { timeout: 10_000 });
+  await page.waitForTimeout(150);
+  return page.evaluate(() => JSON.parse(localStorage.getItem("maybe.sim.v2")!, (_k, v) => (v && typeof v === "object" && "$b" in v ? String(v.$b) : v)));
 }
 
 export async function ready(page: Page, path: string) {

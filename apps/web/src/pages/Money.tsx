@@ -65,7 +65,7 @@ export function Money() {
             );
           })}
         </ul>
-        <div className="hide-mobile" style={{ overflowX: "auto" }}>
+        <div className="hide-mobile scroll-x" role="region" aria-label="Balances (scrolls sideways)" tabIndex={0}>
           <table className="table">
             <thead>
               <tr>

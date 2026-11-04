@@ -71,7 +71,7 @@ export function Discover() {
         <label className="row" style={{ background: "var(--c-s2)", borderRadius: 10, padding: "0 12px", height: 44 }}>
           <Icon name="search" style={{ color: "var(--c-text-3)" }} />
           <span className="sr-only">Search markets</span>
-          <input className="grow" style={{ background: "transparent", border: 0, height: 42, fontSize: 15 }} placeholder="Search markets" value={search} onChange={(e) => set("q", e.target.value)} />
+          <input className="grow" style={{ background: "transparent", border: 0, height: 42, fontSize: 15 }} placeholder="Search markets" aria-label="Search markets" type="search" value={search} onChange={(e) => set("q", e.target.value)} />
         </label>
         <div className="filters" role="group" aria-label="Filters">
           <div className="segmented" role="group" aria-label="Category">
@@ -101,7 +101,7 @@ export function Discover() {
             ))}
           </select>
           <button className="chip" aria-pressed={compat} onClick={() => set("compat", compat ? null : "1")}>
-            <Icon name="check" size={14} /> Can trigger futures
+            {compat && <Icon name="check" size={14} />} Can trigger futures
           </button>
           <span className="grow" />
           <select className="select" style={{ width: "auto", height: 36 }} aria-label="Sort" value={sort} onChange={(e) => set("sort", e.target.value === "closing" ? null : e.target.value)}>
@@ -203,7 +203,7 @@ const MarketRow = memo(function MarketRow({ m, now, current, onOpen }: { m: Mark
           <>
             <span className="row t-small" style={{ justifyContent: "space-between" }}>
               <span className="num">YES {(m.quote.yesBps / 100).toFixed(0)}¢</span>
-              <span className="num muted">NO {(m.quote.noBps / 100).toFixed(0)}¢</span>
+              <span className="num muted odds-no">NO {(m.quote.noBps / 100).toFixed(0)}¢</span>
             </span>
             <span className="odds" aria-hidden="true">
               <span style={{ width: `${m.quote.yesBps / 100}%` }} />
@@ -213,7 +213,7 @@ const MarketRow = memo(function MarketRow({ m, now, current, onOpen }: { m: Mark
           <span className="t-small faint">{m.adapter === "balance-threshold" ? "No price — objective" : m.kind !== "binary" ? `${m.outcomes.length} outcomes` : "No quote"}</span>
         )}
       </span>
-      <span className="stack-tight t-small">
+      <span className="stack-tight t-small col-quote">
         {m.quote ? (
           <>
             <span className="muted">

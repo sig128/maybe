@@ -982,8 +982,17 @@ button.list-item {
     justify-content: center;
     padding: 0;
   }
+  /* the rail hides labels visually but keeps them as the links' accessible names */
   .nav-item .nav-label,
-  .nav-item .nav-count,
+  .nav-item .nav-count {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
   .nav-brand .wordmark {
     display: none;
   }
@@ -994,7 +1003,11 @@ button.list-item {
     width: 52px;
   }
   .nav-foot .nav-foot-text {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
   }
   .page {
     padding: var(--s-6) var(--s-6) var(--s-12);
@@ -1098,4 +1111,14 @@ button.list-item {
   .only-mobile {
     display: none !important;
   }
+}
+
+/* the scrolling content region takes focus for keyboard scrolling; ring drawn inside so it isn't clipped */
+.content:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--c-text);
+  border-radius: 0;
+}
+
+.scroll-x {
+  overflow-x: auto;
 }

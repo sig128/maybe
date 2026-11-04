@@ -1,6 +1,6 @@
 import "@xyflow/react/dist/style.css";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Background, Controls, Handle, MiniMap, Position, ReactFlow, applyNodeChanges, type Edge, type Node, type NodeChange, type NodeProps } from "@xyflow/react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Background, Controls, Handle, MiniMap, Position, ReactFlow, applyNodeChanges, getNodesBounds, type Edge, type Node, type NodeChange, type NodeProps, type ReactFlowInstance } from "@xyflow/react";
 import { actionVerb, conditionTokens, formatAmount, type AssetInfo, type Op, type PredicateNode, type Strategy } from "@maybe/core";
 import { BRANCH_VARS } from "../../components/PathsDiagram.tsx";
 import type { IssueIndex, Sel } from "./model.ts";
@@ -71,7 +71,10 @@ export function buildGraph(doc: Strategy, assets: Map<string, AssetInfo>, issues
   const nodes: GNode[] = [];
   const edges: Edge[] = [];
   const ROW = 92;
-  const COL = 236;
+  const COL = 204;
+  // node boxes are ≤ 220px wide; events get a wider gap so their titles never run under the leaves
+  const EVENT_X = 186;
+  const LEAF_X = EVENT_X + 236;
   const byId = new Map(doc.nodes.map((n) => [n.id, n]));
   const depth = new Map<string, number>();
   const d = (id: string, seen = new Set<string>()): number => {
@@ -85,7 +88,7 @@ export function buildGraph(doc: Strategy, assets: Map<string, AssetInfo>, issues
   };
   doc.nodes.forEach((n) => d(n.id));
   const maxDepth = Math.max(1, ...depth.values());
-  const xOf = { alloc: 0, event: COL, cond: (k: number) => COL * (1 + k), step: COL * (maxDepth + 2), expiry: COL * (maxDepth + 3) };
+  const xOf = { alloc: 0, event: EVENT_X, cond: (k: number) => LEAF_X + (k - 1) * COL, step: LEAF_X + maxDepth * COL };
   const pos = (id: string, x: number, y: number) => doc.layout?.[id] ?? { x, y };
   // rows: actions grouped by allocation lane
   const ordered = doc.allocations.flatMap((al) => doc.actions.filter((a) => a.allocation === al.id));
@@ -136,12 +139,19 @@ export function buildGraph(doc: Strategy, assets: Map<string, AssetInfo>, issues
     nodes.push({ id, type: "g", position: pos(id, xOf.cond(c), placed.get(n.id) ?? 0), data: { kind: "condition", title: nodeTitle(doc, n), sel: { kind: "node", id: n.id }, ...(issues.worst("node", n.id) ? { issue: issues.worst("node", n.id)! } : {}) } });
     children(n).forEach((ch) => edges.push({ id: `e:${ch}->${n.id}`, source: `n:${ch}`, target: id }));
   });
-  // events sit just left of the first leaf that reads them
+  // events sit just left of the first leaf that reads them, never on top of each other (titles wrap to 2 lines)
+  const eventY = new Map<string, number>();
+  doc.events
+    .map((e, i) => {
+      const ys = doc.nodes.filter((n) => (n.kind === "outcome" || n.kind === "veto") && n.event === e.ref).map((l) => placed.get(l.id) ?? 0);
+      return { ref: e.ref, y: ys.length ? Math.min(...ys) : i * ROW };
+    })
+    .sort((a, b) => a.y - b.y)
+    .forEach((e, i, list) => eventY.set(e.ref, i > 0 ? Math.max(e.y, eventY.get(list[i - 1]!.ref)! + ROW * 1.25) : e.y));
   doc.events.forEach((e, i) => {
     const leaves = doc.nodes.filter((n) => (n.kind === "outcome" || n.kind === "veto") && n.event === e.ref);
-    const ys = leaves.map((l) => placed.get(l.id) ?? 0);
     const id = `ev:${e.ref}`;
-    nodes.push({ id, type: "g", position: pos(id, xOf.event - COL * 0.02, ys.length ? Math.min(...ys) : i * ROW), data: { kind: "event", title: `${e.ref} · ${e.title}`, sub: e.adapter === "attestation" ? "Trusted attestation" : "Objective, on-chain", sel: { kind: "event", id: e.ref }, branch: BRANCH_VARS[i % 4], ...(issues.worst("event", e.ref) ? { issue: issues.worst("event", e.ref)! } : {}) } });
+    nodes.push({ id, type: "g", position: pos(id, xOf.event, eventY.get(e.ref) ?? i * ROW), data: { kind: "event", title: `${e.ref} · ${e.title}`, sub: e.adapter === "attestation" ? "Trusted attestation" : "Objective, on-chain", sel: { kind: "event", id: e.ref }, branch: BRANCH_VARS[i % 4], ...(issues.worst("event", e.ref) ? { issue: issues.worst("event", e.ref)! } : {}) } });
     leaves.forEach((l) => edges.push({ id: `e:${e.ref}->${l.id}`, source: id, target: `n:${l.id}`, style: { stroke: "var(--c-line-3)" } }));
   });
   // events and leaves share a column band; shift leaves right of events when they collide
@@ -167,7 +177,7 @@ export function buildGraph(doc: Strategy, assets: Map<string, AssetInfo>, issues
     edges.push({ id: `e:al:${a.allocation}->${a.id}`, source: `al:${a.allocation}`, target: id, type: "smoothstep", style: { stroke: BRANCH_VARS[ai % 4], strokeDasharray: "3 5", opacity: 0.55 } });
   });
   const ex = "expiry";
-  nodes.push({ id: ex, type: "g", position: pos(ex, xOf.expiry, ((row - 1) * ROW) / 2), data: { kind: "expiry", title: "Unspent returns to available", sub: new Date(doc.expiresAt * 1000).toUTCString().slice(5, 16), sel: { kind: "strategy", id: "strategy" } } });
+  nodes.push({ id: ex, type: "g", position: pos(ex, xOf.step, row * ROW + ROW * 0.2), data: { kind: "expiry", title: "Unspent returns to available", sub: new Date(doc.expiresAt * 1000).toUTCString().slice(5, 16), sel: { kind: "strategy", id: "strategy" } } });
   return { nodes, edges };
 }
 
@@ -178,8 +188,22 @@ export default function GraphView({ doc, assets, issues, selected, onSelect, onO
     setNodes(built.nodes.map((n) => ({ ...n, selected: !!n.data.sel && selected?.kind === n.data.sel.kind && selected.id === n.data.sel.id })));
   }, [built, selected]);
   const onNodesChange = useCallback((changes: NodeChange<GNode>[]) => setNodes((ns) => applyNodeChanges(changes, ns)), []);
+  const wrap = useRef<HTMLDivElement>(null);
+  /** Fit the whole plan when it's legible; otherwise keep a readable zoom and start from the money on the left. */
+  const onInit = useCallback((rf: ReactFlowInstance<GNode>) => {
+    const el = wrap.current;
+    if (!el) return;
+    const b = getNodesBounds(rf.getNodes());
+    const W = el.clientWidth;
+    const H = el.clientHeight;
+    const fit = Math.min(1, (W * 0.9) / Math.max(1, b.width), (H * 0.9) / Math.max(1, b.height));
+    const z = Math.max(fit, 0.72);
+    const x = z === fit ? (W - b.width * z) / 2 - b.x * z : 28 - b.x * z;
+    const y = b.height * z < H ? (H - b.height * z) / 2 - b.y * z : 28 - b.y * z;
+    rf.setViewport({ x, y, zoom: z });
+  }, []);
   return (
-    <div className="flow-wrap" aria-label="Graph view. The list view is an equivalent you can use with a keyboard or screen reader." role="region">
+    <div ref={wrap} className="flow-wrap" aria-label="Graph view. The list view is an equivalent you can use with a keyboard or screen reader." role="region">
       <ReactFlow<GNode>
         nodes={nodes}
         edges={built.edges}
@@ -195,8 +219,7 @@ export default function GraphView({ doc, assets, issues, selected, onSelect, onO
         multiSelectionKeyCode={null}
         snapToGrid
         snapGrid={[10, 10]}
-        fitView
-        fitViewOptions={{ padding: 0.12, maxZoom: 1 }}
+        onInit={onInit}
         minZoom={0.3}
         maxZoom={1.6}
         colorMode="dark"

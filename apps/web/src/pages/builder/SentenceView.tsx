@@ -58,10 +58,10 @@ export function SentenceView({
         );
       case "event":
         return (
-          <button key={i} type="button" className="tok tok-event" data-selected={isSel("node", t.nodeId)} {...common} onClick={() => onSelect({ kind: "node", id: t.nodeId })} aria-label={`Event ${t.ref}: ${t.title}. Change event`}>
+          <button key={i} type="button" className="tok tok-event" data-selected={isSel("node", t.nodeId)} {...common} onClick={() => onSelect({ kind: "node", id: t.nodeId })} aria-label={`Event ${t.ref} ${t.title}. Change event`}>
             <span className="tok-ref" style={{ ["--branch" as string]: refColor(t.ref) }}>
               {t.ref}
-            </span>
+            </span>{" "}
             <span>{t.title}</span>
           </button>
         );

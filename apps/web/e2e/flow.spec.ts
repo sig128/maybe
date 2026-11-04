@@ -22,6 +22,7 @@ test("draft → three views → review → sign → resolve → execute → comp
   const sign = page.getByRole("button", { name: "Sign and reserve" });
   // can't sign until both acknowledgements are ticked
   await expect(sign).toHaveAttribute("aria-disabled", "true");
+  await expect(page.locator(".check-row input")).toHaveCount(2);
   for (const box of await page.locator(".check-row input").all()) await box.check();
   await sign.click();
   const dialog = page.getByRole("dialog");
@@ -35,14 +36,18 @@ test("draft → three views → review → sign → resolve → execute → comp
 
   // resolve A = YES from the market panel, then let the challenge window pass
   await ready(page, "/discover?market=orbit-launch");
-  await page.getByRole("button", { name: "Propose YES" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Propose YES" }).click();
+  await expect(page.getByText(/YES proposed|Proposed YES/i).first()).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toBeHidden();
   await page.getByRole("button", { name: /environment and controls/ }).click();
   await page.getByRole("button", { name: "+1h" }).click();
   await page.keyboard.press("Escape");
 
   await ready(page, "/futures");
   await page.getByRole("link", { name: /Orbit, vote & cup/ }).first().click();
-  await expect(page.getByText(/180 USDC/).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/used 180\.00 USDC → got [\d.]+ LUMEN/).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Other branch ran").first()).toBeVisible();
   const after = await simState(page);
   expect(JSON.stringify(after.vault.balances)).not.toBe(vaultBefore);
   expect(after.activity.some((a) => a.kind === "execute" && /Lumen/.test(a.title))).toBe(true);
@@ -55,13 +60,16 @@ test("an authorized future is read-only; editing starts a new version", async ({
   await ready(page, "/futures");
   await page.getByRole("link", { name: /Treasury vote: two portfolios/ }).first().click();
   await page.waitForURL(/\/futures\/[^/]+$/);
-  await page.getByRole("link", { name: /Edit as new version|Open in builder|View plan/ }).first().click().catch(() => undefined);
-  if (/\/edit/.test(page.url())) {
-    await expect(page.getByText(/signed|authorized/i).first()).toBeVisible();
-    const v = page.getByRole("button", { name: "Edit as new version" });
-    await expect(v).toBeVisible();
-    await v.click();
-    await page.waitForURL(/\/edit/);
-    await expect(page.getByText(/new version/i).first()).toBeVisible();
-  }
+  const signedTitle = "Treasury vote: two portfolios";
+  await expect(page.getByRole("heading", { level: 2 }).first()).toHaveText(signedTitle);
+  await page.getByRole("link", { name: "View rules" }).click();
+  await page.waitForURL(/\/edit$/);
+  await expect(page.getByText("Authorized · read only")).toBeVisible();
+  const original = page.url();
+  await page.getByRole("button", { name: "Edit as new version" }).click();
+  await page.waitForURL((u) => u.toString() !== original && /\/edit$/.test(u.toString()));
+  await expect(page.getByText("Authorized · read only")).toHaveCount(0);
+  // the signed version is untouched
+  await page.goto(original.replace(/\/edit$/, ""));
+  await expect(page.getByRole("heading", { level: 2 }).first()).toHaveText(signedTitle);
 });

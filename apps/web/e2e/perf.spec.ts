@@ -33,7 +33,7 @@ test("Discover with ticking quotes for 12 s", async ({ page }) => {
   await ready(page, "/discover");
   await observe(page);
   await page.waitForTimeout(12_000);
-  await page.getByRole("searchbox").first().fill("orbit").catch(() => undefined);
+  await page.getByPlaceholder("Search markets").fill("orbit");
   await page.waitForTimeout(500);
   const r = await read(page);
   results.discoverTicking = r;

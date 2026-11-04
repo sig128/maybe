@@ -140,7 +140,7 @@ export function Shell() {
           ))}
         </div>
         <div className="nav-foot">
-          <button className="nav-item" onClick={() => setPaletteOpen(true)} aria-label="Search and commands">
+          <button className="nav-item" onClick={() => setPaletteOpen(true)} aria-keyshortcuts="Control+K Meta+K /">
             <Icon name="search" />
             <span className="nav-label grow" style={{ textAlign: "left" }}>
               Search
@@ -173,7 +173,8 @@ export function Shell() {
           <WalletButton />
         </header>
         <div className="workspace">
-          <main id="main" className="content" ref={contentRef} tabIndex={-1}>
+          {/* focusable so the content scrolls from the keyboard even on screens without links */}
+          <main id="main" className="content" ref={contentRef} tabIndex={0}>
             <Outlet />
           </main>
         </div>
@@ -213,15 +214,20 @@ export function Shell() {
 
 function NavItem({ def, active, count, alert }: { def: NavDef; active: boolean; count?: number; alert?: boolean }) {
   const link = (
-    <NavLink to={def.to} className="nav-item" aria-current={active ? "page" : undefined} aria-label={def.label}>
+    <NavLink to={def.to} className="nav-item" aria-current={active ? "page" : undefined}>
       <Icon name={def.icon} />
       <span className="nav-label">{def.label}</span>
       {alert ? (
-        <span className="nav-count" aria-label="needs attention">
+        <span className="nav-count">
           <Icon name="alert" size={14} style={{ color: "var(--c-amber)" }} />
+          <span className="sr-only">, needs attention</span>
         </span>
       ) : count ? (
-        <span className="nav-count t-micro num muted">{count}</span>
+        <span className="nav-count t-micro num muted">
+          <span className="sr-only">, </span>
+          {count}
+          <span className="sr-only"> active</span>
+        </span>
       ) : null}
     </NavLink>
   );
@@ -365,8 +371,9 @@ function WalletButton() {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button className="btn btn-sm" aria-label="Wallet">
+        <button className="btn btn-sm">
           <Icon name="wallet" size={16} />
+          <span className="sr-only">Wallet </span>
           <span className="mono hide-mobile">{w.address ? `${w.address.slice(0, 4)}…${w.address.slice(-4)}` : ""}</span>
           {usdc && (
             <span className="hide-mobile muted">

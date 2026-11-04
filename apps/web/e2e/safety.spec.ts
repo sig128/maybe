@@ -34,11 +34,13 @@ test("drag-to-allocate opens a preview; nothing changes until confirmed", async 
 });
 
 test("withdraw refuses more than available and never touches reserved funds", async ({ page }) => {
-  await ready(page, "/money?action=withdraw");
-  const amount = page.getByLabel(/Amount/i).first();
-  await amount.fill("100000");
-  await expect(page.getByText(/available/i).first()).toBeVisible();
-  const submit = page.getByRole("button", { name: /^Withdraw/ }).last();
-  const disabled = (await submit.getAttribute("aria-disabled")) === "true" || (await submit.isDisabled());
-  expect(disabled).toBe(true);
+  await ready(page, "/money");
+  await page.getByRole("tab", { name: "Withdraw" }).click();
+  await page.locator("input.amount-input").first().fill("100000");
+  // the submit names what's missing instead of sending
+  await expect(page.getByRole("button", { name: /^Withdraw.*Unavailable/ })).toBeVisible();
+  const before = await simState(page);
+  await page.getByRole("button", { name: /^Withdraw.*Unavailable/ }).click({ force: true }).catch(() => undefined);
+  const after = await simState(page);
+  expect(JSON.stringify(after.vault.balances)).toBe(JSON.stringify(before.vault.balances));
 });

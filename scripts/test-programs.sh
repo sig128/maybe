@@ -25,6 +25,6 @@ bash scripts/validator.sh
 npx tsx scripts/localnet-setup.ts
 echo "== integration tests"
 status=0
-npx vitest run --project sdk || status=$?
+MAYBE_LOCALNET_TESTS=1 npx vitest run --project sdk || status=$?
 [ "${MAYBE_KEEP_VALIDATOR:-0}" = "1" ] || bash scripts/validator.sh stop
 exit $status

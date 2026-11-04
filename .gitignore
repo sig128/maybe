@@ -20,3 +20,4 @@ apps/web/e2e/.output/
 *.keypair.json
 !programs/keys/localnet/*.json
 apps/web/e2e-*.log
+apps/web/e2e/.axe-scan.cjs
