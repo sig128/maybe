@@ -41,6 +41,12 @@
   margin-left: auto;
   min-width: 0;
 }
+.osite-actions {
+  display: none;
+  margin-left: auto;
+  align-items: center;
+  gap: 6px;
+}
 
 .osite-main {
   flex: 1;
@@ -66,5 +72,25 @@
   }
   .osite-top {
     padding: 0 var(--s-3);
+  }
+}
+/* phones: the balance and the explainer move up into the header, so the controls fit on one line */
+@media (max-width: 760px) {
+  .osite-actions {
+    display: inline-flex;
+  }
+  .osite-main .ocontrols-end {
+    display: none;
+  }
+  .osite .toasts {
+    bottom: calc(var(--s-3) + env(safe-area-inset-bottom));
+  }
+}
+@media (max-width: 420px) {
+  .osite-brand .wordmark {
+    display: none;
+  }
+  .osite-title {
+    padding-left: var(--s-2);
   }
 }

@@ -366,7 +366,8 @@ export class Jupiter {
   constructor(
     private readonly onHealth: () => void,
     private readonly base = "https://lite-api.jup.ag",
-    private readonly perWindow = 5,
+    // Jupiter's lite API allows about 5 calls per 10 s per address; keep one in hand for reloads
+    private readonly perWindow = 4,
     private readonly windowMs = 10_500,
   ) {}
 

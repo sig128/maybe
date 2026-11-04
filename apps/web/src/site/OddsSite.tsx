@@ -1,6 +1,6 @@
 import { Logo } from "../components/Logo.tsx";
 import { Toaster } from "../components/Toast.tsx";
-import Odds, { StatusBar } from "../pages/odds/Odds.tsx";
+import Odds, { BalanceButton, HowButton, StatusBar } from "../pages/odds/Odds.tsx";
 import "./site.css";
 
 export function OddsSite() {
@@ -17,6 +17,10 @@ export function OddsSite() {
         {/* on wide screens the live status sits up here; narrow screens keep it on the board */}
         <div className="osite-status">
           <StatusBar />
+        </div>
+        <div className="osite-actions">
+          <HowButton />
+          <BalanceButton />
         </div>
       </header>
       <main id="board" className="osite-main" tabIndex={-1}>

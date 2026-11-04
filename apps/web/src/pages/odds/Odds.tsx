@@ -10,7 +10,8 @@ import { useClock, useColumn, useLiveStatus, usePractice } from "../../live/hook
 import type { SourceHealth } from "../../live/sources.ts";
 import { PositionsDrawer } from "./Positions.tsx";
 import { TokenDrawer } from "./TokenDrawer.tsx";
-import { ROW_H, TokenRow } from "./TokenRow.tsx";
+import { ROW_H, ROW_H_COMPACT, TokenRow } from "./TokenRow.tsx";
+import { openHow, openPositions, useOddsUi } from "./uiStore.ts";
 import "./odds.css";
 
 const COLUMNS: Array<{ stage: Stage; title: string; hint: string }> = [
@@ -20,6 +21,9 @@ const COLUMNS: Array<{ stage: Stage; title: string; hint: string }> = [
 ];
 
 const STAKES = [0.05, 0.1, 0.5, 1];
+/** After a touch, a column holds still this long so a tap lands on the row that was under the finger. */
+const TOUCH_HOLD_MS = 2500;
+
 const store = {
   get(k: string) {
     try {
@@ -60,11 +64,12 @@ export function StatusBar() {
   const chainTone = healthTone(s.chain, now, 15_000);
   const statsTone = healthTone(s.stats, now, 20_000);
   const statsAge = s.stats.lastAt ? Math.max(0, Math.round((now - s.stats.lastAt) / 1000)) : null;
+  const live = feedTone === "live" && chainTone === "live";
   return (
     <div className="ostatus" role="status" aria-live="off">
-      <span className={`olive is-${feedTone === "live" && chainTone === "live" ? "live" : "slow"}`}>
+      <span className={`olive is-${live ? "live" : "slow"}`}>
         <i aria-hidden="true" />
-        {feedTone === "live" && chainTone === "live" ? "Live on mainnet" : "Connecting to Solana"}
+        {live ? "Live on mainnet" : "Connecting to Solana"}
       </span>
       <Source label="Launches" value={`${s.launchesPerMin}/min`} tone={feedTone} title="New pump.fun launches and graduations, streamed from PumpPortal" />
       <Source label="Slot" value={s.chain.slot ? s.chain.slot.toLocaleString("en-US") : "…"} tone={chainTone} title={`Bonding curves and PumpSwap pools read directly from Solana (${s.chain.subscriptions} live account subscriptions${s.chain.polled ? `, ${s.chain.polled} polled` : ""})`} />
@@ -74,11 +79,52 @@ export function StatusBar() {
   );
 }
 
-function Column({ stage, title, hint, stake, query, onOpen, onVisible, paused }: { stage: Stage; title: string; hint: string; stake: number; query: string; onOpen: (m: string) => void; onVisible: (stage: Stage, mints: string[]) => void; paused: boolean }) {
+/** The practice balance; opens the positions drawer. */
+export function BalanceButton() {
+  const practice = usePractice();
+  const openCount = practice.positions.filter((p) => p.status === "open").length;
+  return (
+    <button className="obalance" onClick={() => openPositions()} aria-label={`${solAmount(practice.balance)} practice SOL${openCount ? `, ${openCount} open positions` : ""}. Show positions`}>
+      <span className="mono">{solAmount(practice.balance)}</span>
+      <span className="muted">practice SOL</span>
+      {openCount > 0 && <span className="obadge mono">{openCount}</span>}
+    </button>
+  );
+}
+
+export function HowButton() {
+  return (
+    <button className="btn btn-ghost btn-sm btn-icon" onClick={() => openHow()} aria-label="How Odds works">
+      <Icon name="info" size={15} />
+    </button>
+  );
+}
+
+function TabCount({ stage }: { stage: Stage }) {
+  const n = useColumn(stage).length;
+  return <span className="otab-count mono">{n}</span>;
+}
+
+function Column({ stage, title, hint, stake, query, rowH, onOpen, onVisible, paused }: { stage: Stage; title: string; hint: string; stake: number; query: string; rowH: number; onOpen: (m: string) => void; onVisible: (stage: Stage, mints: string[]) => void; paused: boolean }) {
   const live = useColumn(stage);
   const [frozen, setFrozen] = useState<string[] | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const engine = liveEngine();
+  // the list holds still while someone is pointing at it, touching it, or reading further down
+  const hold = useRef({ hover: false, focus: false, touchedAt: 0, scrolled: false });
+  const liveRef = useRef(live);
+  liveRef.current = live;
+  const settle = useCallback(() => {
+    const h = hold.current;
+    const holding = h.hover || h.focus || h.scrolled || Date.now() - h.touchedAt < TOUCH_HOLD_MS;
+    setFrozen((f) => (holding ? (f ?? liveRef.current) : null));
+  }, []);
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (hold.current.touchedAt && Date.now() - hold.current.touchedAt >= TOUCH_HOLD_MS) settle();
+    }, 500);
+    return () => clearInterval(t);
+  }, [settle]);
   const shown = useMemo(() => {
     const base = frozen ?? live;
     const q = query.trim().toLowerCase();
@@ -89,16 +135,32 @@ function Column({ stage, title, hint, stake, query, onOpen, onVisible, paused }:
     });
   }, [frozen, live, query, engine]);
   const waiting = frozen ? live.filter((m) => !frozen.includes(m)).length : 0;
-  const v = useVirtualizer({ count: shown.length, getScrollElement: () => scrollRef.current, estimateSize: () => ROW_H, overscan: 6, getItemKey: (i) => shown[i] ?? i });
+  const v = useVirtualizer({ count: shown.length, getScrollElement: () => scrollRef.current, estimateSize: () => rowH, overscan: 6, getItemKey: (i) => shown[i] ?? i });
+  useEffect(() => v.measure(), [rowH, v]);
   const items = v.getVirtualItems();
   const visibleKey = items.map((i) => shown[i.index]).join(",");
   useEffect(() => {
     onVisible(stage, visibleKey ? visibleKey.split(",") : []);
   }, [visibleKey, stage, onVisible]);
-  const freeze = () => !paused && setFrozen(live);
-  const thaw = () => setFrozen(null);
+  const set = (patch: Partial<typeof hold.current>) => {
+    Object.assign(hold.current, patch);
+    if (!paused) settle();
+  };
+  const jumpToTop = () => {
+    hold.current = { hover: hold.current.hover, focus: false, touchedAt: 0, scrolled: false };
+    setFrozen(null);
+    scrollRef.current?.scrollTo({ top: 0 });
+  };
   return (
-    <section className="ocol" aria-label={title} onMouseEnter={freeze} onMouseLeave={thaw} onFocus={freeze} onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && thaw()}>
+    <section
+      className="ocol"
+      aria-label={title}
+      onMouseEnter={() => set({ hover: true })}
+      onMouseLeave={() => set({ hover: false })}
+      onFocus={(e) => set({ focus: (e.target as HTMLElement).matches?.(":focus-visible") ?? true })}
+      onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && set({ focus: false })}
+      onTouchStart={() => set({ touchedAt: Date.now() })}
+    >
       <header className="ocol-head">
         <div className="stack-tight" style={{ minWidth: 0 }}>
           <h2 className="ocol-title">
@@ -107,19 +169,13 @@ function Column({ stage, title, hint, stake, query, onOpen, onVisible, paused }:
           <span className="t-micro muted">{hint}</span>
         </div>
         {(frozen || paused) && (
-          <button
-            className="ocol-hold"
-            onClick={() => {
-              setFrozen(null);
-              scrollRef.current?.scrollTo({ top: 0 });
-            }}
-          >
+          <button className="ocol-hold" onClick={jumpToTop}>
             <Icon name="pause" size={12} /> {paused ? "Paused" : "Held"}
             {waiting > 0 && <span className="mono"> · {waiting} new</span>}
           </button>
         )}
       </header>
-      <div className="ocol-list" ref={scrollRef} tabIndex={-1}>
+      <div className="ocol-list" ref={scrollRef} tabIndex={-1} onScroll={(e) => (e.currentTarget.scrollTop > 8) !== hold.current.scrolled && set({ scrolled: e.currentTarget.scrollTop > 8 })}>
         {shown.length === 0 ? (
           <div className="ocol-empty">
             <span className="oskel" aria-hidden="true" />
@@ -129,20 +185,26 @@ function Column({ stage, title, hint, stake, query, onOpen, onVisible, paused }:
         ) : (
           <div style={{ height: v.getTotalSize(), position: "relative" }}>
             {items.map((it) => (
-              <div key={it.key} className="ocol-item" style={{ transform: `translateY(${it.start}px)`, height: ROW_H }}>
+              <div key={it.key} className="ocol-item" style={{ transform: `translateY(${it.start}px)`, height: rowH }}>
                 <TokenRow mint={shown[it.index]!} stake={stake} onOpen={onOpen} />
               </div>
             ))}
           </div>
         )}
       </div>
+      {frozen && waiting > 0 && (
+        <button className="ocol-new" onClick={jumpToTop}>
+          {waiting} new · back to the top
+        </button>
+      )}
     </section>
   );
 }
 
-function HowItWorks({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+function HowItWorks() {
+  const open = useOddsUi((s) => s.howOpen);
   return (
-    <Modal open={open} onOpenChange={onOpenChange} title="How Odds works">
+    <Modal open={open} onOpenChange={(o) => openHow(o)} title="How Odds works">
       <div className="stack t-small ohow">
         <p>
           <strong>Everything on the board is live.</strong> New pump.fun launches stream in as they happen; each token's bonding curve and, after it graduates, its PumpSwap pool are read straight from Solana mainnet in your browser.
@@ -162,14 +224,18 @@ function HowItWorks({ open, onOpenChange }: { open: boolean; onOpenChange: (o: b
   );
 }
 
+function Positions() {
+  const open = useOddsUi((s) => s.positionsOpen);
+  return <PositionsDrawer open={open} onOpenChange={(o) => openPositions(o)} />;
+}
+
 export default function Odds() {
   const engine = liveEngine();
   const practice = usePractice();
   const narrow = useMediaQuery("(max-width: 900px)");
+  const compact = useMediaQuery("(max-width: 600px)");
   const [tab, setTab] = useState<Stage>("new");
   const [openMint, setOpenMint] = useState<string | null>(null);
-  const [positionsOpen, setPositionsOpen] = useState(false);
-  const [howOpen, setHowOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [paused, setPaused] = useState(false);
   const [stake, setStakeState] = useState(() => {
@@ -220,11 +286,10 @@ export default function Odds() {
     engine.setPaused(!paused);
     setPaused(!paused);
   };
-  const openCount = practice.positions.filter((p) => p.status === "open").length;
   const cols = narrow ? COLUMNS.filter((c) => c.stage === tab) : COLUMNS;
 
   return (
-    <div className="odds">
+    <div className={`odds${narrow ? " is-narrow" : ""}`}>
       <div className="obar-top">
         <StatusBar />
         <div className="ocontrols">
@@ -239,18 +304,14 @@ export default function Odds() {
               </button>
             ))}
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={togglePause} aria-pressed={paused}>
+          <button className="btn btn-ghost btn-sm" onClick={togglePause} aria-pressed={paused} aria-label={paused ? "Resume the board" : "Pause the board"}>
             <Icon name={paused ? "play" : "pause"} size={15} />
             <span className="hide-mobile">{paused ? "Resume" : "Pause"}</span>
           </button>
-          <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setHowOpen(true)} aria-label="How Odds works">
-            <Icon name="info" size={15} />
-          </button>
-          <button className="obalance" onClick={() => setPositionsOpen(true)}>
-            <span className="mono">{solAmount(practice.balance)}</span>
-            <span className="muted">practice SOL</span>
-            {openCount > 0 && <span className="obadge mono">{openCount}</span>}
-          </button>
+          <span className="ocontrols-end">
+            <HowButton />
+            <BalanceButton />
+          </span>
         </div>
       </div>
 
@@ -258,8 +319,8 @@ export default function Odds() {
         <div className="onotice">
           <Icon name="bolt" size={15} />
           <p className="grow t-small">
-            Live from Solana mainnet. Odds are MAYBE's live line, computed from on-chain flow, not a market yet. Positions use practice SOL and settle on real outcomes.{" "}
-            <button className="olink" onClick={() => setHowOpen(true)}>
+            Live from Solana mainnet. Odds are MAYBE's live line, a model of on-chain flow, not a market. Positions use practice SOL and settle on what actually happens.{" "}
+            <button className="olink" onClick={() => openHow()}>
               How it works
             </button>
           </p>
@@ -280,7 +341,7 @@ export default function Odds() {
         <div className="segmented otabs" role="tablist" aria-label="Board">
           {COLUMNS.map((c) => (
             <button key={c.stage} role="tab" aria-selected={tab === c.stage} onClick={() => setTab(c.stage)}>
-              {c.title}
+              {c.title} <TabCount stage={c.stage} />
             </button>
           ))}
         </div>
@@ -288,13 +349,13 @@ export default function Odds() {
 
       <div className={`ocols${narrow ? " is-single" : ""}`}>
         {cols.map((c) => (
-          <Column key={c.stage} {...c} stake={stake} query={query} onOpen={setOpenMint} onVisible={onVisible} paused={paused} />
+          <Column key={c.stage} {...c} stake={stake} query={query} rowH={compact ? ROW_H_COMPACT : ROW_H} onOpen={setOpenMint} onVisible={onVisible} paused={paused} />
         ))}
       </div>
 
       <TokenDrawer mint={openMint} stake={stake} onClose={() => setOpenMint(null)} />
-      <PositionsDrawer open={positionsOpen} onOpenChange={setPositionsOpen} />
-      <HowItWorks open={howOpen} onOpenChange={setHowOpen} />
+      <Positions />
+      <HowItWorks />
     </div>
   );
 }

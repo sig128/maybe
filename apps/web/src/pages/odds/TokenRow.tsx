@@ -1,4 +1,4 @@
-import { memo, useState, type MouseEvent } from "react";
+import { memo, useEffect, useRef, useState, type MouseEvent } from "react";
 import { Icon } from "../../components/Icon.tsx";
 import { liveEngine, type LiveToken, type Market } from "../../live/engine.ts";
 import { linePrice } from "../../live/model.ts";
@@ -7,6 +7,8 @@ import { useClock, useHeadline, useLiveToken } from "../../live/hooks.ts";
 import { toast } from "../../components/Toast.tsx";
 
 export const ROW_H = 112;
+/** Phones: the Yes and No buttons get a full-width row of their own, big enough for a thumb. */
+export const ROW_H_COMPACT = 152;
 
 export function TokenAvatar({ t, size = 48 }: { t: Pick<LiveToken, "mint" | "symbol" | "image" | "progress" | "stage">; size?: number }) {
   const [broken, setBroken] = useState<string | null>(null);
@@ -134,6 +136,25 @@ function StatsLine({ t }: { t: LiveToken }) {
   );
 }
 
+/** The odds, flashing up or down for a moment when the line moves a point or more. */
+function OddsValue({ m }: { m: Market }) {
+  const prev = useRef(m.p);
+  const [move, setMove] = useState<{ dir: "up" | "down"; at: number } | null>(null);
+  useEffect(() => {
+    const d = m.p - prev.current;
+    if (Math.abs(d) >= 0.01) {
+      setMove({ dir: d > 0 ? "up" : "down", at: Date.now() });
+      prev.current = m.p;
+    }
+  }, [m.p]);
+  const text = m.status === "open" ? odds(m.p) : m.status === "yes" ? "Yes" : m.status === "no" ? "No" : "Void";
+  return (
+    <span key={move?.at} className={`oodds${move ? ` is-${move.dir}` : ""}`} title="MAYBE's live line: a model estimate, not a market price">
+      {text}
+    </span>
+  );
+}
+
 export const TokenRow = memo(function TokenRow({ mint, stake, onOpen }: { mint: string; stake: number; onOpen: (mint: string) => void }) {
   const t = useLiveToken(mint);
   const m = useHeadline(mint);
@@ -179,9 +200,7 @@ export const TokenRow = memo(function TokenRow({ mint, stake, onOpen }: { mint: 
       <div className="orow-side">
         {m ? (
           <>
-            <span className="oodds" title="MAYBE's live line: a model estimate, not a market price">
-              {m.status === "open" ? odds(m.p) : m.status === "yes" ? "Yes" : m.status === "no" ? "No" : "Void"}
-            </span>
+            <OddsValue m={m} />
             <TradeButtons m={m} symbol={t.symbol} stake={stake} />
           </>
         ) : (
