@@ -9,7 +9,8 @@
     "preview": "vite preview --port 4173",
     "typecheck": "tsc -p tsconfig.json",
     "e2e": "playwright test",
-    "build:preview": "node scripts/build-preview.mjs"
+    "build:preview": "node scripts/build-preview.mjs",
+    "build:public": "VITE_PUBLIC_SITE=1 vite build --outDir dist-public"
   },
   "dependencies": {
     "@fontsource-variable/instrument-sans": "5.3.0",

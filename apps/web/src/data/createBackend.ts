@@ -6,9 +6,12 @@ import { HttpBackend } from "./http/httpBackend.ts";
  * Environment selection is explicit and persistent:
  *  - VITE_MAYBE_API (or ?api=… once) → the API server for a local validator / devnet
  *  - otherwise → in-browser simulation
+ *  - public builds (VITE_PUBLIC_SITE=1) are always the simulation, whatever the URL says
  * The chosen mode is shown at all times in the top bar.
  */
 export function createBackend(): Backend {
+  // a public deployment never lets a link or stored setting point it at another API
+  if (import.meta.env.VITE_PUBLIC_SITE === "1") return new SimulationBackend();
   const params = new URLSearchParams(globalThis.location?.search ?? "");
   let api: string | null = params.get("api");
   try {

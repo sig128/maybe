@@ -22,3 +22,4 @@ apps/web/e2e/.output/
 apps/web/e2e-*.log
 apps/web/e2e/.axe-scan.cjs
 dist-preview/
+dist-public/

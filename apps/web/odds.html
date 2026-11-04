@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#101110" />
+    <meta name="description" content="Live yes-or-no questions on every new pump.fun token, priced every second from on-chain flow and settled by what actually happens on Solana." />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Odds · maybe" />
+    <meta property="og:description" content="Live yes-or-no questions on every new pump.fun token, priced every second from on-chain flow and settled by what actually happens on Solana." />
+    <meta name="twitter:card" content="summary" />
+    <link rel="icon" type="image/svg+xml" href="/mark.svg" />
+    <!-- the board opens these connections first thing; warm them while the script loads -->
+    <link rel="preconnect" href="https://solana-rpc.publicnode.com" crossorigin />
+    <link rel="preconnect" href="https://lite-api.jup.ag" crossorigin />
+    <link rel="preconnect" href="https://ipfs.filebase.io" crossorigin />
+    <link rel="dns-prefetch" href="https://pumpportal.fun" />
+    <title>Odds · maybe</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>The live board reads Solana straight from your browser, so it needs JavaScript.</noscript>
+    <script type="module" src="/src/site/main.tsx"></script>
+  </body>
+</html>

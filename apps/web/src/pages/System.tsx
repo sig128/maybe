@@ -203,6 +203,7 @@ export function Settings() {
           </table>
         </div>
       </section>
+      {import.meta.env.VITE_PUBLIC_SITE !== "1" && (
       <section className="panel">
         <h3 className="t-head">Connect to a MAYBE API</h3>
         <p className="t-small muted">Run the API and workers against a local validator (see README), then enter its URL. Leave empty for the in-browser simulation.</p>
@@ -216,7 +217,7 @@ export function Settings() {
               } catch {
                 /* ignore */
               }
-              location.assign("/");
+              location.assign(import.meta.env.BASE_URL);
             }}
           >
             {api.trim() ? "Connect and reload" : "Use simulation"}
@@ -224,6 +225,7 @@ export function Settings() {
         </div>
         <Banner tone="info">Read-only mainnet data never means execution is live. Real funds are never routed through simulated settlement.</Banner>
       </section>
+      )}
     </div>
   );
 }

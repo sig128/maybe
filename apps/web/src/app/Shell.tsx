@@ -24,7 +24,8 @@ interface NavDef {
 
 export const NAV: NavDef[] = [
   { to: "/", label: "Overview", icon: "overview", key: "o", mobile: true },
-  { to: "/discover", label: "Discover", icon: "discover", key: "d", mobile: true },
+  { to: "/odds", label: "Odds", icon: "odds", key: "l", mobile: true },
+  { to: "/discover", label: "Discover", icon: "discover", key: "d" },
   { to: "/futures", label: "Futures", icon: "futures", key: "f", mobile: true },
   { to: "/money", label: "Money", icon: "money", key: "m", mobile: true },
   { to: "/agents", label: "Agents", icon: "agents", key: "a" },
@@ -39,6 +40,7 @@ const SECONDARY: NavDef[] = [
 
 const TITLES: Array<[RegExp, string]> = [
   [/^\/$/, "Overview"],
+  [/^\/odds/, "Odds"],
   [/^\/discover/, "Discover"],
   [/^\/markets\//, "Market"],
   [/^\/futures\/[^/]+\/review/, "Review & authorize"],
@@ -103,6 +105,7 @@ export function Shell() {
   const { data: strategies } = useStrategies();
   useGlobalShortcuts(() => setPaletteOpen(true));
   const title = TITLES.find(([re]) => re.test(pathname))?.[1] ?? "MAYBE";
+  const onOdds = pathname.startsWith("/odds");
   const marketKey = params.get("market") ?? undefined;
   const contentRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -162,15 +165,18 @@ export function Shell() {
           </div>
           <div className="topbar-spacer" />
           <ModeBadge />
-          <Button variant="ghost" size="sm" iconOnly icon="search" aria-label="Search and commands" onClick={() => setPaletteOpen(true)} className="only-mobile" />
-          <button className="btn btn-outline btn-sm hide-mobile" style={{ minWidth: 200, justifyContent: "flex-start", color: "var(--c-text-2)" }} onClick={() => setPaletteOpen(true)}>
-            <Icon name="search" size={16} />
-            <span className="grow" style={{ textAlign: "left" }}>
-              Search markets, futures…
-            </span>
-            <Kbd>/</Kbd>
-          </button>
-          <WalletButton />
+          {/* the live board has its own search and its own practice balance */}
+          <Button variant="ghost" size="sm" iconOnly icon="search" aria-label="Search and commands" onClick={() => setPaletteOpen(true)} className={onOdds ? undefined : "only-mobile"} />
+          {!onOdds && (
+            <button className="btn btn-outline btn-sm hide-mobile" style={{ minWidth: 200, justifyContent: "flex-start", color: "var(--c-text-2)" }} onClick={() => setPaletteOpen(true)}>
+              <Icon name="search" size={16} />
+              <span className="grow" style={{ textAlign: "left" }}>
+                Search markets, futures…
+              </span>
+              <Kbd>/</Kbd>
+            </button>
+          )}
+          {!onOdds && <WalletButton />}
         </header>
         <div className="workspace">
           {/* focusable so the content scrolls from the keyboard even on screens without links */}
@@ -251,6 +257,18 @@ export function ModeBadge() {
   const { data: env } = useEnvironment();
   const backend = useBackend();
   const now = useNow(5000);
+  const { pathname } = useLocation();
+  if (pathname.startsWith("/odds")) {
+    // the live board reads mainnet directly, whatever this app's own backend is
+    return (
+      <Tip content="Live pump.fun launches, bonding curves and PumpSwap pools, read from Solana mainnet in your browser. Positions use practice SOL.">
+        <span className="pill pill-quiet" style={{ height: 26, borderRadius: 7, boxShadow: "inset 0 0 0 1px var(--c-accent-line)", color: "var(--c-text)" }} tabIndex={0}>
+          <Icon name="dot" size={13} style={{ color: "var(--c-accent)" }} />
+          Mainnet · live
+        </span>
+      </Tip>
+    );
+  }
   if (!env) return null;
   const sim = backend.sim;
   const badge = (

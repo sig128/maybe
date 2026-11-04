@@ -8,7 +8,7 @@ export function RouteError() {
       <h2 className="t-display">Something broke on this screen</h2>
       <p className="muted">{msg}</p>
       <p className="t-small faint">No transaction was sent because of this error. Your balances are unchanged.</p>
-      <a className="btn btn-primary" href={import.meta.env.VITE_HASH_ROUTER === "1" ? "#/" : "/"} style={{ alignSelf: "flex-start" }}>
+      <a className="btn btn-primary" href={import.meta.env.VITE_HASH_ROUTER === "1" ? "#/" : import.meta.env.BASE_URL} style={{ alignSelf: "flex-start" }}>
         Reload MAYBE
       </a>
     </div>
