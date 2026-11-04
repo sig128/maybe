@@ -384,12 +384,22 @@ button.path-card:hover {
 }
 
 @media (max-width: 1100px) {
+  /* stacked: one page scroll instead of two half-height scroll areas */
   .builder {
     grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+  .builder-main,
+  .builder-side {
+    overflow: visible;
   }
   .builder-side {
     border-left: 0;
     border-top: 1px solid var(--c-line);
+  }
+  /* in the shorter stacked canvas the overview map covers the last steps */
+  .flow-wrap .react-flow__minimap {
+    display: none;
   }
 }
 @media (max-width: 760px) {

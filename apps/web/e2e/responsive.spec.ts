@@ -25,10 +25,17 @@ test("builder and review @responsive", async ({ page }, info) => {
   await openFlagshipDraft(page);
   await noHorizontalScroll(page);
   await page.screenshot({ path: `${shotDir(info.project.name)}/builder-sentence.png` });
+  // the view lives in the URL and switches inside a router transition, so wait for it to land
   await page.getByRole("tab", { name: "Graph" }).click();
-  await page.waitForTimeout(800);
+  await expect(page.getByRole("tab", { name: "Graph" })).toHaveAttribute("aria-selected", "true");
+  await page.locator(".react-flow__node").first().waitFor();
+  await page.waitForTimeout(600); // initial viewport settles
+  await noHorizontalScroll(page);
   await page.screenshot({ path: `${shotDir(info.project.name)}/builder-graph.png` });
   await page.getByRole("tab", { name: "List" }).click();
+  await expect(page.getByRole("tab", { name: "List" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("region", { name: "Steps" })).toBeVisible();
+  await noHorizontalScroll(page);
   await page.screenshot({ path: `${shotDir(info.project.name)}/builder-list.png` });
   await page.getByRole("button", { name: "Review", exact: true }).click();
   await page.waitForURL(/\/review/);

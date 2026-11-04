@@ -49,6 +49,8 @@ The same scenarios on the unminified dev server ran 2–3× slower (worst input 
 - On phones, the Overview total's explanation was squeezed into a narrow column beside the buttons. The buttons now wrap below.
 - Futures cards were narrow enough to truncate their status line; the grid now uses wider columns.
 - "Outside MAYBE" under the wallet balance was ambiguous; it now reads "Not in your vault yet".
+- At 1024 px the builder stacked the graph and the inspector as two half-height scroll areas, leaving the graph a 250 px slot. Stacked layouts now scroll as one page, the graph keeps its full height, and the overview map (which covered the last steps) is hidden there. On a phone, a graph too wide to read when fitted opens at the top-left instead of floating mid-canvas.
+- The suite's graph and list screenshots were taken before the view switch landed (it runs inside a router transition), so both showed the graph. The test now waits for the selected tab and the view's content.
 
 ## Not checked
 

@@ -198,8 +198,9 @@ export default function GraphView({ doc, assets, issues, selected, onSelect, onO
     const H = el.clientHeight;
     const fit = Math.min(1, (W * 0.9) / Math.max(1, b.width), (H * 0.9) / Math.max(1, b.height));
     const z = Math.max(fit, 0.72);
+    // fits: centre it. Too big to read when fitted: start at the top-left (allocations first) and let people pan.
     const x = z === fit ? (W - b.width * z) / 2 - b.x * z : 28 - b.x * z;
-    const y = b.height * z < H ? (H - b.height * z) / 2 - b.y * z : 28 - b.y * z;
+    const y = z === fit ? (H - b.height * z) / 2 - b.y * z : 28 - b.y * z;
     rf.setViewport({ x, y, zoom: z });
   }, []);
   return (
