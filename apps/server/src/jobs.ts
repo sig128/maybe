@@ -37,12 +37,19 @@ interface JobRow {
 
 const toJob = (r: JobRow): Job => ({ id: String(r.id), kind: r.kind, key: r.idempotency_key, payload: r.payload, state: r.state, attempts: r.attempts, maxAttempts: r.max_attempts, runAt: r.run_at, lastError: r.last_error });
 
-/** Returns true when a new job was created (false: one with this key already exists, in any state). */
-export async function enqueue(q: Queryable, kind: string, key: string, payload: Record<string, unknown>, o: { runAt?: Date; maxAttempts?: number } = {}): Promise<boolean> {
+/**
+ * Returns true when a job was created (false: one with this key already exists). With
+ * `reviveDeadAfterSeconds`, a job that ran out of attempts at least that long ago is queued again
+ * with fresh attempts — for work that is still valid (a step that can still execute), a stretch of
+ * bad prices or a flaky RPC shouldn't abandon it for good.
+ */
+export async function enqueue(q: Queryable, kind: string, key: string, payload: Record<string, unknown>, o: { runAt?: Date; maxAttempts?: number; reviveDeadAfterSeconds?: number } = {}): Promise<boolean> {
   const r = await q.query(
     `INSERT INTO jobs (kind, idempotency_key, payload, run_at, max_attempts) VALUES ($1, $2, $3, COALESCE($4, now()), $5)
-     ON CONFLICT (idempotency_key) DO NOTHING RETURNING id`,
-    [kind, key, JSON.stringify(payload), o.runAt ?? null, o.maxAttempts ?? 8],
+     ON CONFLICT (idempotency_key) DO UPDATE SET state = 'QUEUED', attempts = 0, run_at = now(), updated_at = now()
+       WHERE jobs.state = 'DEAD' AND $6::int IS NOT NULL AND jobs.updated_at < now() - make_interval(secs => $6::int)
+     RETURNING id`,
+    [kind, key, JSON.stringify(payload), o.runAt ?? null, o.maxAttempts ?? 8, o.reviveDeadAfterSeconds ?? null],
   );
   return (r.rowCount ?? 0) > 0;
 }

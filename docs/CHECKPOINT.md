@@ -36,9 +36,10 @@ See `docs/DECISIONS.md`.
 
 ## Evidence
 
-- `docs/evidence/e2e-chain.md` — last end-to-end run (33 steps)
+- `docs/evidence/e2e-chain.md` — last end-to-end run (37 steps)
 - `docs/evidence/localnet-ui/` — the web app driven against the local validator
 - `docs/QA.md` — browser QA, accessibility, responsiveness, visual critique passes
+- An independent review of the server's money paths (auth, intents, transaction pipeline, jobs, config) found 11 issues; all are fixed and covered by tests (threat model T20–T25): resend-safe sending and per-call intent leases, no double funding after a false failure, authorizations bound to the plan they were built for, effects committed atomically, dead jobs revived while still executable, rate-limit/body/stream limits, owner-only job details on the ops screen, strict u64 encoding, localnet mode only against a local validator.
 
 ## Remaining
 

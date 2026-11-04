@@ -100,12 +100,16 @@ export async function revokeSession(q: Queryable, bearer: string | undefined): P
   if (token) await q.query(`UPDATE wallet_sessions SET revoked_at = now() WHERE token_hash = $1`, [tokenHash(token)]);
 }
 
-/** Token bucket per key, stored in Postgres so limits hold across API processes. */
+/**
+ * Token bucket per key, stored in Postgres so limits hold across API processes. A refused request
+ * doesn't dig the bucket deeper (the floor is -1), so hammering can't extend a lockout: the
+ * bucket is usable again within a couple of refill intervals of the client slowing down.
+ */
 export async function rateLimit(q: Queryable, bucket: string, perMinute: number): Promise<boolean> {
   const r = await q.query<{ tokens: number }>(
     `INSERT INTO rate_limits (bucket, tokens, refreshed_at) VALUES ($1, $2 - 1, now())
      ON CONFLICT (bucket) DO UPDATE SET
-       tokens = LEAST($2, rate_limits.tokens + EXTRACT(EPOCH FROM (now() - rate_limits.refreshed_at)) * $2 / 60.0) - 1,
+       tokens = GREATEST(LEAST($2, rate_limits.tokens + EXTRACT(EPOCH FROM (now() - rate_limits.refreshed_at)) * $2 / 60.0) - 1, -1),
        refreshed_at = now()
      RETURNING tokens`,
     [bucket, perMinute],

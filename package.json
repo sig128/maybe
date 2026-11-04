@@ -20,8 +20,7 @@
     "e2e:chain": "tsx scripts/e2e-chain.ts",
     "e2e:browser": "pnpm --filter @maybe/web e2e",
     "validator": "bash scripts/validator.sh",
-    "db:migrate": "pnpm --filter @maybe/server db:migrate",
-    "db:seed": "pnpm --filter @maybe/server db:seed"
+    "db:migrate": "pnpm --filter @maybe/server db:migrate"
   },
   "devDependencies": {
     "@types/node": "22.19.1",

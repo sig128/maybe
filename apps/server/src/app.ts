@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
+import { hostname } from "node:os";
 import { buildFixtures, type FixtureSet } from "@maybe/core";
 import { defaultBookPath, loadLocalnetBook, toCoreAddressBook, type LocalnetBook } from "@maybe/sdk";
 import { Chain } from "./chain.ts";
-import { ConfigError, type Config } from "./config.ts";
+import { ConfigError, isLocalRpc, type Config } from "./config.ts";
 import { createPool, type Db } from "./db.ts";
 import { Indexer } from "./indexer.ts";
 import { publish, type Topic } from "./outbox.ts";
@@ -29,11 +30,16 @@ export function newId(prefix: string): string {
   return `${prefix}_${randomBytes(9).toString("base64url")}`;
 }
 
+/** Unique per process (container replicas often share a PID): intent leases and job locks are keyed on it. */
+export function processIdentity(name: string): string {
+  return `${name}@${hostname()}:${process.pid}:${randomBytes(3).toString("hex")}`;
+}
+
 export function loadBook(cfg: Config): LocalnetBook {
   const path = cfg.LOCALNET_BOOK ?? defaultBookPath();
   const book = loadLocalnetBook(path);
   if (!book) throw new ConfigError(`No address book at ${path}. Start a validator and seed it first: bash scripts/validator.sh && npx tsx scripts/localnet-setup.ts`);
-  if (cfg.MAYBE_MODE === "localnet" && !/127\.0\.0\.1|localhost/.test(book.rpc)) throw new ConfigError("The localnet address book points at a non-local RPC.");
+  if (cfg.MAYBE_MODE === "localnet" && !isLocalRpc(book.rpc)) throw new ConfigError("The localnet address book points at a non-local RPC.");
   return book;
 }
 
@@ -51,7 +57,7 @@ export async function createApp(cfg: Config, o: { runner?: string; db?: Db } = {
     fx,
     mode: cfg.MAYBE_MODE === "devnet" ? "devnet" : "localnet",
     indexer: undefined as unknown as Indexer,
-    runner: o.runner ?? `${cfg.WORKER_ID}:${process.pid}`,
+    runner: o.runner ?? processIdentity(cfg.WORKER_ID),
     publish: (topics) => publish(db, topics),
     now: async () => {
       try {

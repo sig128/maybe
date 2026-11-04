@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
-import { createApp } from "./app.ts";
-import { loadConfig } from "./config.ts";
+import { createApp, processIdentity } from "./app.ts";
+import { loadConfig, rpcHost } from "./config.ts";
 import { migrate } from "./db.ts";
 import { log } from "./log.ts";
 import { Hub } from "./outbox.ts";
@@ -15,16 +15,16 @@ import { Worker } from "./workers.ts";
  */
 async function main() {
   const cfg = loadConfig();
-  const app = await createApp(cfg, { runner: `api:${process.pid}` });
+  const app = await createApp(cfg, { runner: processIdentity("api") });
   const applied = await migrate(app.db);
   if (applied.length) log.info({ applied }, "migrations applied");
   const hub = new Hub(cfg.DATABASE_URL, () => Math.floor(Date.now() / 1000));
   await hub.start();
   const routes = buildRoutes(app, hub);
-  const server = serve({ fetch: routes.fetch, port: cfg.PORT, hostname: cfg.HOST }, (info) => log.info({ port: info.port, mode: cfg.MAYBE_MODE, rpc: cfg.RPC_URL }, "MAYBE API listening"));
+  const server = serve({ fetch: routes.fetch, port: cfg.PORT, hostname: cfg.HOST }, (info) => log.info({ port: info.port, mode: cfg.MAYBE_MODE, rpc: rpcHost(cfg.RPC_URL) }, "MAYBE API listening"));
   let worker: Worker | null = null;
   if (process.env.MAYBE_WITH_WORKER === "1") {
-    worker = new Worker(app, `worker:${process.pid}`);
+    worker = new Worker(app, processIdentity("worker"));
     worker.start();
     log.info("worker running in-process");
   }

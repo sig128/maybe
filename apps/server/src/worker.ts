@@ -1,5 +1,5 @@
-import { createApp } from "./app.ts";
-import { loadConfig } from "./config.ts";
+import { createApp, processIdentity } from "./app.ts";
+import { loadConfig, rpcHost } from "./config.ts";
 import { migrate } from "./db.ts";
 import { log } from "./log.ts";
 import { Worker } from "./workers.ts";
@@ -7,12 +7,12 @@ import { Worker } from "./workers.ts";
 /** Background worker: indexer, keeper, settlement watcher, transaction recovery, reconciliation. */
 async function main() {
   const cfg = loadConfig();
-  const id = process.env.MAYBE_WORKER_ID ?? `worker:${process.pid}`;
+  const id = processIdentity(process.env.MAYBE_WORKER_ID ?? cfg.WORKER_ID);
   const app = await createApp(cfg, { runner: id });
   await migrate(app.db);
   const w = new Worker(app, id);
   w.start();
-  log.info({ id, mode: cfg.MAYBE_MODE, rpc: cfg.RPC_URL }, "worker started");
+  log.info({ id, mode: cfg.MAYBE_MODE, rpc: rpcHost(cfg.RPC_URL) }, "worker started");
   const shutdown = async () => {
     await w.stop();
     await app.close();

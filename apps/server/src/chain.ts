@@ -8,6 +8,7 @@ import {
   SYSVAR_CLOCK_PUBKEY,
   SendTransactionError,
   Transaction,
+  type SignatureStatus,
   type TransactionInstruction,
 } from "@solana/web3.js";
 import { createAssociatedTokenAccountIdempotentInstruction, createMintToInstruction } from "@solana/spl-token";
@@ -54,7 +55,16 @@ export interface TxPlan {
   effect?: string;
   ixs: TransactionInstruction[];
   computeUnits?: number;
+  /** what this transaction does in an authorization (the create's effect records the account) */
+  role?: "accounts" | "create" | "upload" | "activate";
 }
+
+/** What's at a strategy account address before authorizing: decides resume, fresh create, or stop. */
+export type StrategyProbe =
+  | { address: PublicKey; state: "absent" }
+  | { address: PublicKey; state: "uploading"; sameHash: boolean }
+  /** activated at some point (active, paused or closed): its reservation already happened */
+  | { address: PublicKey; state: "activated"; sameHash: boolean; status: number };
 
 export interface CompiledTx {
   label: string;
@@ -74,7 +84,13 @@ export interface SendOutcome {
   code?: number;
   /** blockhash expired before landing: nothing happened, safe to rebuild */
   expired?: boolean;
+  /** the caller asked to stop waiting (lost its lease); the outcome is unknown and someone else owns it */
+  aborted?: boolean;
+  /** it landed, but the RPC didn't return its logs in time (events must be fetched later) */
+  logsMissing?: boolean;
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class ChainError extends Error {
   constructor(
@@ -290,6 +306,23 @@ export class Chain {
    * is cancelled in the same transaction as the activation, so there's never
    * a moment with both or neither reserved.
    */
+  /** Look at the account a strategy id maps to, compared with the plan about to be authorized. */
+  async probeStrategy(vault: PublicKey, strategyId: bigint, bytes: Uint8Array): Promise<StrategyProbe> {
+    const hash = sha256Bytes(bytes);
+    const address = this.client.pdas.strategy(vault, strategyId);
+    const existing = await this.maybeStrategy(address);
+    if (!existing) return { address, state: "absent" };
+    const sameHash = Buffer.compare(Buffer.from(existing.planHash), Buffer.from(hash)) === 0;
+    return existing.status === 0 ? { address, state: "uploading", sameHash } : { address, state: "activated", sameHash, status: existing.status };
+  }
+
+  /** Has the strategy at this address been activated (with this plan, when a hash is given)? */
+  async probeStrategyAt(address: PublicKey, planHashHex?: string): Promise<{ activated: boolean }> {
+    const s = await this.maybeStrategy(address);
+    if (!s || s.status === 0) return { activated: false };
+    return { activated: !planHashHex || Buffer.from(s.planHash).toString("hex") === planHashHex };
+  }
+
   async authorizePlan(o: { creator: PublicKey; vault: PublicKey; strategyId: bigint; version: number; bytes: Uint8Array; policy?: PublicKey; supersede?: PublicKey }): Promise<{ strategy: PublicKey; txs: TxPlan[] }> {
     const hash = sha256Bytes(o.bytes);
     const { strategy, ix } = this.client.vaultIx.createStrategy(o.creator, o.vault, o.strategyId, o.version, o.bytes.length, hash, o.policy);
@@ -301,7 +334,7 @@ export class Chain {
       if (Buffer.compare(Buffer.from(existing.planHash), Buffer.from(hash)) !== 0) throw new ChainError("A different plan was already uploaded under this id. Start a new version.");
       written = existing.written;
     } else {
-      txs.push({ label: "Create the future's account", effect: "Commits the plan hash; nothing is reserved yet", ixs: [ix] });
+      txs.push({ label: "Create the future's account", effect: "Commits the plan hash; nothing is reserved yet", ixs: [ix], role: "create" });
     }
     // the vault needs a canonical token account for every mint the plan can receive or spend
     const plan0 = decodePlan(o.bytes);
@@ -313,10 +346,10 @@ export class Chain {
         const a = this.asset(m);
         ixs.push(...(await this.client.registerMintIxs(o.creator, o.vault, a.mintKey, a.program)).ixs);
       }
-      txs.unshift({ label: `Open vault token accounts (${missing.map((m) => this.asset(m).key).join(", ")})`, effect: "Creates your vault's own token accounts for the assets this plan can hold", ixs });
+      txs.unshift({ label: `Open vault token accounts (${missing.map((m) => this.asset(m).key).join(", ")})`, effect: "Creates your vault's own token accounts for the assets this plan can hold", ixs, role: "accounts" });
     }
     const chunks = chunkPlan(o.bytes, 800).filter((c) => c.offset >= written);
-    chunks.forEach((c, i) => txs.push({ label: `Upload plan (part ${i + 1} of ${chunks.length})`, ixs: [this.client.vaultIx.writePlan(o.creator, strategy, c.offset, c.data)] }));
+    chunks.forEach((c, i) => txs.push({ label: `Upload plan (part ${i + 1} of ${chunks.length})`, ixs: [this.client.vaultIx.writePlan(o.creator, strategy, c.offset, c.data)], role: "upload" }));
     const plan = decodePlan(o.bytes);
     const remaining = [...plan.events, ...plan.refs].map((a) => new PublicKey(a));
     const activate = this.client.vaultIx.activateStrategy(o.creator, o.vault, strategy, remaining, o.policy);
@@ -324,6 +357,7 @@ export class Chain {
       label: o.supersede ? "Replace previous version and reserve" : "Activate and reserve",
       effect: "The program checks the uploaded bytes against the signed hash, then reserves the allocations",
       ixs: o.supersede ? [this.client.vaultIx.cancelStrategy(o.creator, o.vault, o.supersede), activate] : [activate],
+      role: "activate",
     });
     return { strategy, txs };
   }
@@ -370,40 +404,86 @@ export class Chain {
     return tx.serialize();
   }
 
-  /** Send a signed transaction and wait for confirmation (or blockhash expiry). */
-  async sendSigned(raw: Buffer, blockhash: string, lastValidBlockHeight: number, onSubmitted?: (signature: string) => void): Promise<SendOutcome> {
-    let signature: string;
-    try {
-      signature = await this.conn.sendRawTransaction(raw, { skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 5 });
-    } catch (e) {
-      let logs: string[] = [];
-      if (e instanceof SendTransactionError) logs = (await e.getLogs(this.conn).catch(() => null)) ?? e.logs ?? [];
-      const msg = String((e as Error).message ?? e);
-      if (/Blockhash not found|block height exceeded/i.test(msg)) return { ok: false, logs, events: [], expired: true, error: "The transaction expired before it landed. Nothing changed; try again." };
-      const code = errorCodeFrom((e as { transactionError?: unknown }).transactionError ?? msg, logs);
-      const name = code !== undefined ? vaultErrorName(code) : undefined;
-      return { ok: false, logs, events: [], ...(code !== undefined ? { code } : {}), error: explainError(name, msg.split("\n")[0]!.slice(0, 300)) };
-    }
-    onSubmitted?.(signature);
-    try {
-      const conf = await this.conn.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
-      const info = await this.conn.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
-      const logs = info?.meta?.logMessages ?? [];
-      if (conf.value.err || info?.meta?.err) {
-        const code = errorCodeFrom(conf.value.err ?? info?.meta?.err, logs);
-        return { ok: false, signature, slot: info?.slot ?? 0, logs, events: [], ...(code !== undefined ? { code } : {}), error: explainError(code !== undefined ? vaultErrorName(code) : undefined, JSON.stringify(conf.value.err ?? info?.meta?.err)) };
+  /**
+   * Send signed bytes and wait until they're confirmed, rejected, or provably expired.
+   *
+   * Safe to call again for the same bytes — after a crash, or by a runner that took over. The
+   * signature is the transaction's identity, so this asks the cluster about it before every
+   * broadcast, treats "already processed" as landed, rebroadcasts while the blockhash is valid,
+   * and reports expiry only once the block height has passed it and the signature is still
+   * unknown. `processed` is not success (that fork can still be dropped); only `confirmed` or
+   * `finalized` is final, either way. RPC errors throw rather than turning into a failure: the
+   * caller retries later instead of recording something that may not be true.
+   *
+   * `mayHaveLanded`: an earlier call may already have broadcast these bytes. Then a preflight
+   * rejection isn't final until the blockhash expires, because the earlier copy could still land.
+   */
+  async sendSigned(raw: Buffer, lastValidBlockHeight: number, o: { mayHaveLanded?: boolean; beforeFirstSend?: () => Promise<void>; keepGoing?: () => boolean } = {}): Promise<SendOutcome> {
+    const signature = bs58.encode(Transaction.from(raw).signature!);
+    let rejected: SendOutcome | null = null;
+    let rejectedAt = 0;
+    let accepted = false;
+    let announced = false;
+    let lastBroadcast = 0;
+    for (;;) {
+      if (o.keepGoing && !o.keepGoing()) return { ok: false, signature, logs: [], events: [], aborted: true };
+      const st = await this.statusOf(signature);
+      if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) return this.landedOutcome(signature, st);
+      if (!st) {
+        // rejected by preflight and no earlier copy can be in flight: a short grace period, then it's final
+        if (rejected && !o.mayHaveLanded && Date.now() - rejectedAt > 2_000) return rejected;
+        if ((await this.conn.getBlockHeight("confirmed")) > lastValidBlockHeight) {
+          if (await this.statusOf(signature)) continue; // landed right at the edge
+          return rejected ?? { ok: false, signature, logs: [], events: [], expired: true, error: "The transaction expired before it landed. Nothing changed; try again." };
+        }
+        if (!rejected && Date.now() - lastBroadcast > 2_000) {
+          lastBroadcast = Date.now();
+          const preflight = !accepted;
+          try {
+            if (!announced) {
+              announced = true;
+              await o.beforeFirstSend?.();
+            }
+            await this.conn.sendRawTransaction(raw, { skipPreflight: !preflight, preflightCommitment: "confirmed", maxRetries: 2 });
+            accepted = true;
+          } catch (e) {
+            const msg = String((e as Error).message ?? e);
+            if (/already been processed|AlreadyProcessed/i.test(msg)) accepted = true; // landed: the status check finds it
+            else if (/Blockhash not found/i.test(msg)) {
+              // the node is behind, or the blockhash is gone: the block-height check decides
+            } else if (preflight && e instanceof SendTransactionError) {
+              const logs = (await e.getLogs(this.conn).catch(() => null)) ?? e.logs ?? [];
+              const code = errorCodeFrom((e as { transactionError?: unknown }).transactionError ?? msg, logs);
+              rejected = { ok: false, signature, logs, events: [], ...(code !== undefined ? { code } : {}), error: explainError(code !== undefined ? vaultErrorName(code) : undefined, msg.split("\n")[0]!.slice(0, 300)) };
+              rejectedAt = Date.now();
+            } else if (!(e instanceof SendTransactionError)) {
+              throw e; // transport/RPC trouble: let the caller retry later rather than guess
+            }
+          }
+        }
       }
-      return { ok: true, signature, slot: info?.slot ?? 0, logs, events: parseVaultEvents(logs, this.ids.vault) };
-    } catch (e) {
-      const msg = String((e as Error).message ?? e);
-      if (/expired|block height exceeded/i.test(msg)) {
-        // last check: it may have landed right at the edge
-        const st = await this.conn.getSignatureStatus(signature, { searchTransactionHistory: true }).catch(() => null);
-        if (st?.value && !st.value.err) return { ok: true, signature, slot: st.value.slot, logs: [], events: [] };
-        return { ok: false, signature, logs: [], events: [], expired: true, error: "The transaction expired before it landed. Nothing changed; try again." };
-      }
-      throw e;
+      await sleep(600);
     }
+  }
+
+  private async statusOf(signature: string): Promise<SignatureStatus | null> {
+    return (await this.conn.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0] ?? null;
+  }
+
+  /** A confirmed signature: success or the program's error, with logs and decoded events when the RPC has them. */
+  private async landedOutcome(signature: string, st: SignatureStatus): Promise<SendOutcome> {
+    let info: Awaited<ReturnType<Connection["getTransaction"]>> = null;
+    for (let i = 0; i < 6 && !info; i++) {
+      info = await this.conn.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 }).catch(() => null);
+      if (!info) await sleep(500);
+    }
+    const logs = info?.meta?.logMessages ?? [];
+    const err = st.err ?? info?.meta?.err ?? null;
+    if (err) {
+      const code = errorCodeFrom(err, logs);
+      return { ok: false, signature, slot: st.slot, logs, events: [], ...(code !== undefined ? { code } : {}), error: explainError(code !== undefined ? vaultErrorName(code) : undefined, JSON.stringify(err)) };
+    }
+    return { ok: true, signature, slot: st.slot, logs, events: info ? parseVaultEvents(logs, this.ids.vault) : [], ...(info ? {} : { logsMissing: true }) };
   }
 
   /** Server-held signer (keeper, localnet admin, agent session key): build, sign and send in one go. */

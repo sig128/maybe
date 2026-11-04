@@ -2,7 +2,7 @@
 
 Status as of 2026-11-04. **Implemented & tested** means exercised by an automated test listed in the last column. **Local only** means it works against the local validator with development keys or test venues and needs production counterparts. **Externally blocked** names the exact missing requirement. **Deferred** is a deliberate scope cut.
 
-Test suites: `core` (110), `agent` (11), `sdk` (17: 5 unit + 12 on a live validator), Rust `maybe-logic` (11) + `maybe-vault` layout (1), `server` (13, Postgres), `web` (4), browser (Playwright, `apps/web/e2e`), end to end (`pnpm e2e:chain`, `docs/evidence/e2e-chain.md`).
+Test suites: `core` (110), `agent` (11), `sdk` (18: 6 unit + 12 on a live validator), Rust `maybe-logic` (11) + `maybe-vault` layout (1), `server` (19, Postgres), `web` (4), browser (Playwright, `apps/web/e2e`), end to end (`pnpm e2e:chain`, `docs/evidence/e2e-chain.md`).
 
 ## Strategy language and engine
 
@@ -45,16 +45,17 @@ Test suites: `core` (110), `agent` (11), `sdk` (17: 5 unit + 12 on a live valida
 | Feature | Status | Evidence |
 |---|---|---|
 | Sign-in with Solana: domain-bound, single-use, expiring challenges; hashed session tokens | Implemented & tested | server tests |
-| Rate limiting (Postgres token bucket) | Implemented & tested | server tests |
+| Rate limiting (Postgres token bucket, socket address or trusted proxy hop, bounded lockout), body limit, live-update stream caps | Implemented & tested | server tests |
 | Unsigned transaction building; wallet signs exact bytes; signature verification before send | Implemented & tested | e2e (every money action) |
-| Ordered, resumable, idempotent transaction pipeline with leases | Implemented & tested | server tests; e2e resumable authorization |
-| Durable jobs: idempotent keys, SKIP LOCKED, leases, backoff, dead letters | Implemented & tested | server tests; e2e crash tests |
+| Authorization guards: one in flight per future; void once the future is edited or deleted; a future keeps its account id; an activation already on-chain is recognised, never funded twice | Implemented & tested | server tests; e2e "edited before signing", "recorded as failed but live on-chain" |
+| Ordered, resumable, idempotent transaction pipeline: per-call leases with heartbeat, resend-safe sending (signature checked before every broadcast), effects committed with their applied-mark | Implemented & tested | server tests; e2e resumable authorization, API crash after a deposit lands |
+| Durable jobs: idempotent keys, SKIP LOCKED, heartbeat leases, backoff, dead letters revived while the step can still run | Implemented & tested | server tests; e2e crash tests |
 | Indexer → projections, receipts (unique per run), activity | Implemented & tested | e2e |
 | Keeper (permissionless crank), settlement watcher, finality cranks | Implemented & tested | e2e |
 | Reconciliation of ledger vs actual token balances | Implemented & tested | e2e |
 | Transactional outbox + LISTEN/NOTIFY → SSE | Implemented & tested | server tests (commit-only delivery) |
 | Health, structured redacted logs, ops screen | Implemented | `/v1/health`, `/v1/ops`, web Operations |
-| Configuration safety (no dev attestors / local fixtures / mock settlement in production) | Implemented & tested | server tests |
+| Configuration safety (no dev attestors / local fixtures / mock settlement in production; localnet mode only against a local validator) | Implemented & tested | server tests |
 | Prometheus-style metrics endpoint | Deferred | ops endpoint exposes the same counters as JSON |
 | Server-held agent session keys | Local only (`.localnet/session-keys`); production needs a KMS/HSM | — |
 

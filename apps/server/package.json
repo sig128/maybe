@@ -9,7 +9,6 @@
     "start": "tsx src/main.ts",
     "worker": "tsx src/worker.ts",
     "db:migrate": "tsx src/migrate.ts",
-    "db:seed": "tsx src/seed.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {

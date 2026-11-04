@@ -3,6 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import vaultIdl from "../src/idl/maybe_vault.json" with { type: "json" };
 import venueIdl from "../src/idl/maybe_testvenue.json" with { type: "json" };
 import { accountDisc, attestationMessage, eventDisc, ixDisc, vaultErrorName, LOCALNET_PROGRAM_IDS, Pdas } from "../src/index.ts";
+import { Writer } from "../src/codec.ts";
 
 type Idl = { address: string; instructions: Array<{ name: string; discriminator: number[] }>; accounts?: Array<{ name: string; discriminator: number[] }>; events?: Array<{ name: string; discriminator: number[] }> };
 
@@ -34,5 +35,21 @@ describe("SDK ↔ IDL agreement (no validator needed)", () => {
     const owner = new PublicKey("11111111111111111111111111111112");
     expect(p.vault(owner, 0n).equals(p.vault(owner, 0))).toBe(true);
     expect(p.vault(owner, 0n).equals(p.vault(owner, 1n))).toBe(false);
+  });
+});
+
+describe("instruction encoding", () => {
+  it("refuses integers that don't fit their field instead of wrapping them", () => {
+    // a wrapped -1 would encode as u64::MAX: an unlimited policy cap
+    expect(() => new Writer().u64(-1n)).toThrow(RangeError);
+    expect(() => new Writer().u64(2n ** 64n)).toThrow(RangeError);
+    expect(() => new Writer().u32(2 ** 32)).toThrow(RangeError);
+    expect(() => new Writer().u16(-1)).toThrow(RangeError);
+    expect(() => new Writer().u8(256)).toThrow(RangeError);
+    expect(() => new Writer().i64(2n ** 63n)).toThrow(RangeError);
+    expect(() => new Writer().u64(1.5)).toThrow(RangeError);
+    expect([...new Writer().u64(2n ** 64n - 1n).done()]).toEqual(Array(8).fill(255));
+    expect([...new Writer().i64(-1n).done()]).toEqual(Array(8).fill(255));
+    expect([...new Writer().u16(513).done()]).toEqual([1, 2]);
   });
 });

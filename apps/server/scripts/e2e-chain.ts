@@ -4,8 +4,12 @@
  *
  *   1. flagship: deposit → reserve → resolve → execute → refund → withdraw
  *   2. failure paths: VOID refund; a reservation that loses a race with a
- *      withdrawal fails on-chain and reserves nothing; resumable re-authorization; cancel
- *   3. worker crash after sending / before sending: restart, no duplicate spend
+ *      withdrawal fails on-chain and reserves nothing; resumable re-authorization; cancel;
+ *      a prepared authorization is void once the future is edited; a falsely failed
+ *      activation is recognised from the chain instead of being funded twice
+ *   3. worker crash after sending / before sending: restart, no duplicate spend;
+ *      API crash after a deposit landed (with its "sent" mark lost): resumed from the
+ *      chain, recorded once, never re-sent as new
  *   4. agents: injected instructions do nothing; out-of-policy plans are refused
  *      by the program (not just the server); kill switch
  *
@@ -23,7 +27,7 @@ import bs58 from "bs58";
 import { Keypair, PublicKey, Connection } from "@solana/web3.js";
 import { applyOp, templateById, compileStrategy, type FixtureSet, type Strategy } from "@maybe/core";
 import { parse, stringify, type Portfolio, type StrategyView, type TxRecord, type OpsStatus, type AgentSession, type ActivityItem } from "@maybe/api";
-import { MaybeClient, ata, repoRoot, toStrategyState, vaultErrorName, type LocalnetBook } from "@maybe/sdk";
+import { MaybeClient, accountDisc, ata, decodeStrategy, repoRoot, toStrategyState, vaultErrorName, type LocalnetBook } from "@maybe/sdk";
 
 const ROOT = repoRoot();
 const PORT = Number(process.env.MAYBE_E2E_PORT ?? 8799);
@@ -91,6 +95,7 @@ function startProcess(name: string, script: string, env: Record<string, string> 
       LOG_LEVEL: process.env.LOG_LEVEL ?? "warn",
       RATE_LIMIT_PER_MINUTE: "100000",
       MAYBE_JOB_LEASE_SECONDS: "4",
+      MAYBE_INTENT_LEASE_SECONDS: "6",
       ...env,
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -225,7 +230,7 @@ async function main() {
   await db.end();
   const q = new pg.Pool({ connectionString: DB_URL });
 
-  const api = startProcess("api", "main.ts");
+  let api = startProcess("api", "main.ts");
   await step("API server healthy", () => waitFor("health", async () => (await fetch(`${BASE}/v1/health`)).ok, 60_000), () => BASE);
   let worker = startProcess("worker-1", "worker.ts");
 
@@ -385,6 +390,50 @@ async function main() {
     return true;
   });
 
+  const plansOnChain = async (hashHex: string) => {
+    const r = await conn.getProgramAccounts(new PublicKey(book.programIds.vault), {
+      commitment: "confirmed",
+      filters: [{ memcmp: { offset: 0, bytes: bs58.encode(accountDisc("Strategy")) } }, { memcmp: { offset: 8, bytes: vaultPda.toBase58() } }],
+    });
+    return r.map((x) => decodeStrategy(x.account.data)).filter((a) => Buffer.from(a.planHash).toString("hex") === hashHex);
+  };
+  const staleDoc = scale(build(fx, "yes-buys-token", { now: await now(), id: "e2e-stale", title: "Harbor bridge → MAYBE (edited before signing)", event: { ref: "A", marketKey: "harbor-bridge" } }), 1n, 5n, "e2e-stale");
+  await step("transactions prepared for a plan can't be signed after the future is edited", async () => {
+    await alice.post("/strategies", { doc: staleDoc });
+    const p = await alice.post<{ hash: string }>("/strategies/prepare", { doc: staleDoc });
+    const held = await alice.signed(`/strategies/${staleDoc.id}/authorize`, { expectedHash: p.hash }, true);
+    await alice.post("/strategies", { doc: { ...staleDoc, title: "Harbor bridge → MAYBE (edited)" } });
+    const err = await held.submit().then(() => null, (e: HttpError) => e);
+    assert(err?.status === 409, `expected 409, got ${err ? err.status : "success"}`);
+    const intent = await q.query("SELECT state, error FROM intents WHERE id = $1", [held.intent]);
+    eq(intent.rows[0]?.state, "FAILED", "intent state");
+    const sent = await q.query("SELECT count(*)::int AS n FROM transactions WHERE intent_id = $1 AND signature IS NOT NULL", [held.intent]);
+    eq(sent.rows[0].n, 0, "transactions with a signature attached");
+    eq((await plansOnChain(p.hash)).length, 0, "accounts on-chain for that plan");
+    eq((await strategy(staleDoc.id)).status === "AWAITING_SIGNATURE", false, "still awaiting a signature");
+    await alice.req(`/strategies/${staleDoc.id}`, { method: "DELETE" });
+    return err!.message;
+  }, (m) => `409: ${m}`);
+  const lateDoc = scale(build(fx, "yes-buys-token", { now: await now(), id: "e2e-late", title: "Harbor bridge → MAYBE (late confirmation)", event: { ref: "A", marketKey: "harbor-bridge" } }), 1n, 5n, "e2e-late");
+  await step("an activation recorded as failed but live on-chain is recognised, never funded twice", async () => {
+    await alice.post("/strategies", { doc: lateDoc });
+    const p = await alice.post<{ hash: string }>("/strategies/prepare", { doc: lateDoc });
+    await alice.signed(`/strategies/${lateDoc.id}/authorize`, { expectedHash: p.hash });
+    await until(lateDoc.id, "ACTIVE");
+    const reserved = bal(await portfolio(), usdc).reserved;
+    // what a lost confirmation used to leave behind: the row says it failed and forgot its account
+    await q.query("UPDATE strategies SET status = 'ACTIVATION_FAILED', strategy_account = NULL, last_error = 'simulated: confirmation lost' WHERE id = $1", [lateDoc.id]);
+    const p2 = await alice.post<{ hash: string }>("/strategies/prepare", { doc: lateDoc });
+    const err = await alice.post(`/strategies/${lateDoc.id}/authorize`, { expectedHash: p2.hash }).then(() => null, (e: HttpError) => e);
+    assert(err?.status === 409 && /already authorized/i.test(err.message), `expected 409 already authorized, got ${err ? `${err.status} ${err.message}` : "transactions to sign"}`);
+    const s = await until(lateDoc.id, "ACTIVE", 30_000);
+    eq((await plansOnChain(p.hash)).length, 1, "accounts on-chain holding this plan");
+    eq(bal(await portfolio(), usdc).reserved, reserved, "reserved");
+    await alice.signed(`/strategies/${lateDoc.id}/cancel`);
+    await until(lateDoc.id, "CANCELLED");
+    return s.runtime!.address;
+  }, (a) => `409, row re-linked to ${a.slice(0, 6)}…; one account on-chain; reservation unchanged`);
+
   // ═════════════════════════════ 3. worker crash and restart
   scenario = "3 · worker crash and restart: no duplicate spend";
   console.log(`\n${scenario}`);
@@ -440,6 +489,40 @@ async function main() {
     }, (r) => `1 receipt, 1 on-chain execution, job attempts ${r.attempts}`);
     if (mode === "after") await stop(worker);
   }
+  // the API process sends intents; crash it right after a deposit lands, and lose its "sent" mark too
+  await stop(api);
+  const crashedApi = startProcess("api-crash-after-send", "main.ts", { MAYBE_CRASH_AFTER_SEND: "deposit" });
+  await waitFor("crash-configured API", async () => (await fetch(`${BASE}/v1/health`).catch(() => null))?.ok, 60_000);
+  let depositIntent = "";
+  const crash = await step("API crashes after a deposit lands, before recording it", async () => {
+    const before = bal(await portfolio(), usdc).available;
+    const built = await alice.signed("/money/deposit", { mint: usdc, units: 25n * U });
+    depositIntent = built.intent;
+    const code = await Promise.race([crashedApi.exited, new Promise<null>((r) => setTimeout(() => r(null), 60_000))]);
+    eq(code, 87, "exit code");
+    const t = await q.query("SELECT state, signature FROM transactions WHERE intent_id = $1", [depositIntent]);
+    const st = (await conn.getSignatureStatuses([t.rows[0].signature], { searchTransactionHistory: true })).value[0];
+    assert(st && !st.err, "the deposit landed on-chain");
+    // simulate the worst case: the write that marked it as sent never happened either
+    await q.query("UPDATE transactions SET state = 'SIGNED' WHERE intent_id = $1", [depositIntent]);
+    return { before, state: t.rows[0].state as string };
+  }, (r) => `landed on-chain; recorded state was ${r.state}, reset to SIGNED`);
+  api = startProcess("api-restart", "main.ts");
+  await waitFor("API back", async () => (await fetch(`${BASE}/v1/health`).catch(() => null))?.ok, 60_000);
+  await step("after its lease lapses, the intent resumes from the chain: confirmed once, never re-sent as new", async () => {
+    const intent = await waitFor("the deposit intent to finish", async () => {
+      const r = await q.query("SELECT state, error, effects_applied FROM intents WHERE id = $1", [depositIntent]);
+      return r.rows[0]?.state === "DONE" || r.rows[0]?.state === "FAILED" ? r.rows[0] : null;
+    }, 60_000);
+    eq(intent.state, "DONE", `intent state (${intent.error ?? ""})`);
+    const t = await q.query("SELECT state, signature FROM transactions WHERE intent_id = $1", [depositIntent]);
+    assert(t.rows[0].state === "CONFIRMED" || t.rows[0].state === "FINALIZED", `tx state ${t.rows[0].state}`);
+    const acts = (await alice.get<ActivityItem[]>("/activity")).filter((a) => a.kind === "deposit" && a.tx?.signature === t.rows[0].signature);
+    eq(acts.length, 1, "activity entries for the deposit");
+    eq(intent.effects_applied.length, 1, "effects applied");
+    await waitFor("the vault to show the deposit once", async () => bal(await portfolio(), usdc).available === crash.before + 25n * U, 30_000);
+    return intent.effects_applied;
+  }, () => "DONE; transaction CONFIRMED; one activity entry; effect applied once");
   await step("reconciliation still exact after the crashes", async () => {
     const t0 = Math.floor(Date.now() / 1000);
     const o = await waitFor("a reconciliation run after the restarts", async () => {

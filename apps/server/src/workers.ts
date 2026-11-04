@@ -4,7 +4,7 @@ import { decodeAttestorSet, toEventView, toStrategyState, toVaultState, vaultErr
 import type { App } from "./app.ts";
 import { runIntent } from "./flows.ts";
 import { logIndexerError } from "./indexer.ts";
-import { claim, defer, enqueue, fail, succeed, type Job } from "./jobs.ts";
+import { claim, defer, enqueue, fail, heartbeat, succeed, type Job } from "./jobs.ts";
 import { log, shortAddr } from "./log.ts";
 import { abandonedIntents, allVaults, getStrategyByAccount, kvSet, logActivity, openTxs, recordReconciliation, setTx, updateStrategy } from "./store.ts";
 import { chainContext } from "./views.ts";
@@ -17,6 +17,10 @@ import { chainContext } from "./views.ts";
  */
 
 const NOT_READY_RETRY_SECONDS = 3;
+/** A step that ran out of attempts but can still execute is tried again after this pause (prices and RPCs recover). */
+const REVIVE_DEAD_AFTER_SECONDS = Number(process.env.MAYBE_JOB_REVIVE_SECONDS ?? 300);
+/** An unexpected exception (RPC or database trouble, not a program error) retries after this, without spending an attempt. */
+const INFRA_RETRY_SECONDS = 15;
 /** errors that mean "this run already happened or can never happen": the job is finished */
 const TERMINAL = new Set(["ActionComplete", "BranchLost", "StrategyClosed", "RunOutOfOrder", "NotActive", "DeadlinePassed"]);
 /** not yet: the guard, delay or schedule isn't satisfied on-chain (projection was ahead of the chain) */
@@ -33,16 +37,16 @@ export class Keeper {
     for (const s of Object.values(ctx.strategies)) {
       if (s.status !== "ACTIVE" && s.status !== "PAUSED") continue;
       if (ctx.now >= s.plan.expiresAt) {
-        if (await enqueue(this.app.db, "close", `close:${s.address}:expire`, { strategy: s.address, vault: s.vault, mode: "EXPIRE" })) n++;
+        if (await enqueue(this.app.db, "close", `close:${s.address}:expire`, { strategy: s.address, vault: s.vault, mode: "EXPIRE" }, { reviveDeadAfterSeconds: REVIVE_DEAD_AFTER_SECONDS })) n++;
         continue;
       }
       if (s.status !== "ACTIVE" || ctx.executionPaused) continue;
       const times = guardTimes(s, ctx);
       for (let i = 0; i < s.plan.actions.length; i++) {
         const r = actionReadiness(s, i, ctx, times);
-        if (r.state === "executable" && (await enqueue(this.app.db, "execute", `execute:${s.address}:${i}:${r.run}`, { strategy: s.address, vault: s.vault, action: i, run: r.run }))) n++;
+        if (r.state === "executable" && (await enqueue(this.app.db, "execute", `execute:${s.address}:${i}:${r.run}`, { strategy: s.address, vault: s.vault, action: i, run: r.run }, { reviveDeadAfterSeconds: REVIVE_DEAD_AFTER_SECONDS }))) n++;
       }
-      if (allActionsTerminal(s, ctx) && (await enqueue(this.app.db, "close", `close:${s.address}:complete`, { strategy: s.address, vault: s.vault, mode: "COMPLETE" }))) n++;
+      if (allActionsTerminal(s, ctx) && (await enqueue(this.app.db, "close", `close:${s.address}:complete`, { strategy: s.address, vault: s.vault, mode: "COMPLETE" }, { reviveDeadAfterSeconds: REVIVE_DEAD_AFTER_SECONDS }))) n++;
     }
     this.ticks++;
     await kvSet(this.app.db, "keeper", { lastTickAt: ctx.now, ticks: this.ticks, at: Math.floor(Date.now() / 1000) });
@@ -96,7 +100,7 @@ export class Keeper {
     if (row) {
       const label = row.doc.actions[action]?.label ?? `Step ${action + 1}`;
       await updateStrategy(db, row.id, { lastError: `${label}: ${out.error}` });
-      await logActivity(db, row.owner, { at: ctx.now, kind: "failure", title: `${label} of “${row.doc.title}” didn't execute`, detail: `${out.error}. Nothing was spent${state === "DEAD" ? "; the keeper stopped retrying this step." : "; it will be retried."}`, actor: "keeper", strategyId: row.id }, `execfail:${job.key}:${job.attempts}`);
+      await logActivity(db, row.owner, { at: ctx.now, kind: "failure", title: `${label} of “${row.doc.title}” didn't execute`, detail: `${out.error}. Nothing was spent${state === "DEAD" ? `; the keeper pauses this step and tries again in ${Math.round(REVIVE_DEAD_AFTER_SECONDS / 60)} min while it can still run.` : "; it will be retried."}`, actor: "keeper", strategyId: row.id }, `execfail:${job.key}:${job.attempts}`);
       await this.app.publish(["strategies", "activity", "ops"]);
     }
   }
@@ -224,6 +228,7 @@ export class Worker {
   readonly txwatch: TxWatch;
   private stopped = false;
   private timers: Array<ReturnType<typeof setInterval>> = [];
+  private readonly leaseSeconds = Number(process.env.MAYBE_JOB_LEASE_SECONDS ?? 30);
 
   constructor(
     private readonly app: App,
@@ -269,7 +274,7 @@ export class Worker {
     while (!this.stopped) {
       let jobs: Job[] = [];
       try {
-        jobs = await claim(this.app.db, this.id, ["execute", "close", "observe", "finalize", "void-disputed"], { limit: 4, leaseSeconds: Number(process.env.MAYBE_JOB_LEASE_SECONDS ?? 30) });
+        jobs = await claim(this.app.db, this.id, ["execute", "close", "observe", "finalize", "void-disputed"], { limit: 4, leaseSeconds: this.leaseSeconds });
       } catch (e) {
         logIndexerError("claim", e);
       }
@@ -279,13 +284,18 @@ export class Worker {
   }
 
   async runJob(j: Job): Promise<void> {
+    // keep the lease while the job waits on the chain, so a slow confirmation isn't mistaken for a dead worker
+    const beat = setInterval(() => void heartbeat(this.app.db, j, this.id, this.leaseSeconds).catch(() => undefined), Math.max(500, (this.leaseSeconds * 1000) / 3));
     try {
       if (j.kind === "execute") await this.keeper.execute(j, this.id);
       else if (j.kind === "close") await this.keeper.close(j, this.id);
       else await this.settlement.handle(j, this.id);
     } catch (e) {
-      log.warn({ job: j.key, err: (e as Error).message }, "job threw");
-      await fail(this.app.db, j, this.id, (e as Error).message, { retryable: true }).catch(() => undefined);
+      // programs answer with errors in the outcome; an exception is RPC or database trouble: retry without spending an attempt
+      log.warn({ job: j.key, err: (e as Error).message }, "job threw; retrying later");
+      await defer(this.app.db, j, this.id, INFRA_RETRY_SECONDS, `retrying after an infrastructure error: ${(e as Error).message}`.slice(0, 500)).catch(() => undefined);
+    } finally {
+      clearInterval(beat);
     }
   }
 

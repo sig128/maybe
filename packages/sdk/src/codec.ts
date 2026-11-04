@@ -2,11 +2,17 @@ import { PublicKey } from "@solana/web3.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { utf8ToBytes } from "@noble/hashes/utils.js";
 
+/** Values that don't fit their field are refused, never wrapped (a wrapped -1 is an unlimited u64 cap). */
+function checkRange(kind: string, v: bigint, min: bigint, max: bigint): bigint {
+  if (v < min || v > max) throw new RangeError(`${kind} out of range: ${v}`);
+  return v;
+}
+
 /** Minimal little-endian Borsh writer/reader for instruction args and accounts. */
 export class Writer {
   private parts: Uint8Array[] = [];
   u8(v: number) {
-    this.parts.push(Uint8Array.of(v & 0xff));
+    this.parts.push(Uint8Array.of(Number(checkRange("u8", BigInt(v), 0n, 0xffn))));
     return this;
   }
   bool(v: boolean) {
@@ -14,25 +20,25 @@ export class Writer {
   }
   u16(v: number) {
     const b = new Uint8Array(2);
-    new DataView(b.buffer).setUint16(0, v, true);
+    new DataView(b.buffer).setUint16(0, Number(checkRange("u16", BigInt(v), 0n, 0xffffn)), true);
     this.parts.push(b);
     return this;
   }
   u32(v: number) {
     const b = new Uint8Array(4);
-    new DataView(b.buffer).setUint32(0, v, true);
+    new DataView(b.buffer).setUint32(0, Number(checkRange("u32", BigInt(v), 0n, 0xffff_ffffn)), true);
     this.parts.push(b);
     return this;
   }
   u64(v: bigint | number) {
     const b = new Uint8Array(8);
-    new DataView(b.buffer).setBigUint64(0, BigInt(v), true);
+    new DataView(b.buffer).setBigUint64(0, checkRange("u64", BigInt(v), 0n, 2n ** 64n - 1n), true);
     this.parts.push(b);
     return this;
   }
   i64(v: bigint | number) {
     const b = new Uint8Array(8);
-    new DataView(b.buffer).setBigInt64(0, BigInt(v), true);
+    new DataView(b.buffer).setBigInt64(0, checkRange("i64", BigInt(v), -(2n ** 63n), 2n ** 63n - 1n), true);
     this.parts.push(b);
     return this;
   }

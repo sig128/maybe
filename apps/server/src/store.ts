@@ -357,8 +357,14 @@ export async function markEffect(q: Queryable, id: string, seq: number): Promise
   return (r.rowCount ?? 0) > 0;
 }
 
-/** Lease an intent for sending; only one runner at a time, and a dead runner's lease expires. */
-export async function leaseIntent(q: Queryable, id: string, runner: string, seconds = 45): Promise<boolean> {
+/** How long a runner's claim on an intent lasts without a heartbeat (a crashed runner's intent resumes after this). */
+export const INTENT_LEASE_SECONDS = Number(process.env.MAYBE_INTENT_LEASE_SECONDS ?? 60);
+
+/**
+ * Lease an intent for sending, or renew a lease this holder already has. Holders are unique per
+ * runIntent call, so a second call can't share a live lease, even from the same process.
+ */
+export async function leaseIntent(q: Queryable, id: string, runner: string, seconds = INTENT_LEASE_SECONDS): Promise<boolean> {
   const r = await q.query(
     `UPDATE intents SET runner = $2, lease_until = now() + make_interval(secs => $3::int) WHERE id = $1 AND state = 'SUBMITTING' AND (runner IS NULL OR runner = $2 OR lease_until < now())`,
     [id, runner, seconds],
@@ -368,6 +374,35 @@ export async function leaseIntent(q: Queryable, id: string, runner: string, seco
 
 export async function releaseIntent(q: Queryable, id: string, runner: string): Promise<void> {
   await q.query(`UPDATE intents SET runner = NULL, lease_until = NULL WHERE id = $1 AND runner = $2`, [id, runner]);
+}
+
+/** Lock a strategy row for the rest of the transaction (authorization and submission serialize on it). */
+export async function lockStrategy(q: Queryable, id: string): Promise<StrategyRow | null> {
+  const r = await q.query<RawStrategy>(`SELECT * FROM strategies WHERE id = $1 FOR UPDATE`, [id]);
+  return r.rows[0] ? toStrategy(r.rows[0]) : null;
+}
+
+/** Is an authorization for this strategy being sent right now? */
+export async function authorizationInFlight(q: Queryable, strategyId: string): Promise<boolean> {
+  const r = await q.query(`SELECT 1 FROM intents WHERE strategy_id = $1 AND kind = 'authorize' AND state = 'SUBMITTING' LIMIT 1`, [strategyId]);
+  return (r.rowCount ?? 0) > 0;
+}
+
+/** Prepared-but-unsigned authorizations for a strategy can no longer be submitted (the plan or the request changed). */
+export async function voidBuiltAuthorizations(q: Queryable, strategyId: string, reason: string, exceptIntent?: string): Promise<number> {
+  const r = await q.query<{ id: string }>(
+    `UPDATE intents SET state = 'FAILED', error = $2, updated_at = now() WHERE strategy_id = $1 AND kind = 'authorize' AND state = 'BUILT' AND id <> COALESCE($3, '') RETURNING id`,
+    [strategyId, reason, exceptIntent ?? null],
+  );
+  const ids = r.rows.map((x) => x.id);
+  if (ids.length) await q.query(`UPDATE transactions SET state = 'FAILED', error = $2, updated_at = now() WHERE intent_id = ANY($1::text[]) AND state IN ('BUILT', 'SIGNED')`, [ids, reason]);
+  return ids.length;
+}
+
+/** An unsigned intent that can no longer be submitted. */
+export async function voidIntent(q: Queryable, id: string, reason: string): Promise<void> {
+  const r = await q.query(`UPDATE intents SET state = 'FAILED', error = $2, updated_at = now() WHERE id = $1 AND state = 'BUILT'`, [id, reason]);
+  if (r.rowCount) await q.query(`UPDATE transactions SET state = 'FAILED', error = $2, updated_at = now() WHERE intent_id = $1 AND state IN ('BUILT', 'SIGNED')`, [id, reason]);
 }
 
 export async function abandonedIntents(q: Queryable): Promise<string[]> {
@@ -448,6 +483,11 @@ export async function setTx(q: Queryable, id: string, patch: Partial<{ state: Tx
     `UPDATE transactions SET state = COALESCE($2, state), signed_tx = COALESCE($3, signed_tx), signature = COALESCE($4, signature), error = CASE WHEN $6 THEN $5 ELSE error END, slot = COALESCE($7, slot), updated_at = now() WHERE id = $1`,
     [id, patch.state ?? null, patch.signedTx ?? null, patch.signature ?? null, patch.error ?? null, patch.error !== undefined, patch.slot ?? null],
   );
+}
+
+/** First successful broadcast. Never moves a transaction backwards (a late write can't undo CONFIRMED). */
+export async function markSubmitted(q: Queryable, id: string, signature: string): Promise<void> {
+  await q.query(`UPDATE transactions SET state = 'SUBMITTED', signature = COALESCE(signature, $2), updated_at = now() WHERE id = $1 AND state IN ('BUILT', 'SIGNED')`, [id, signature]);
 }
 
 export function txRecord(t: TxRow): TxRecord {

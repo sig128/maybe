@@ -15,6 +15,7 @@ import {
   type StrategyView,
 } from "@maybe/api";
 import type { App } from "./app.ts";
+import { rpcHost } from "./config.ts";
 import { recentJobs, type Queryable } from "./jobs.ts";
 import {
   eventViews,
@@ -131,20 +132,25 @@ export async function policies(app: App, owner: string): Promise<CapabilityPolic
 
 const JOB_STATE: Record<string, string> = { QUEUED: "queued", RUNNING: "running", RETRY_WAIT: "retrying", SUCCEEDED: "done", DEAD: "stopped", CANCELLED: "cancelled" };
 
-/** What a background job is doing, in the words the rest of the app uses. */
-async function jobLabel(app: App, kind: string, p: Record<string, unknown>): Promise<string> {
+/**
+ * What a background job is doing, in the words the rest of the app uses. Jobs that act on a future
+ * are only shown to that future's owner (titles and step names are private); jobs about public
+ * events are shown to everyone. Returns null for a job this viewer shouldn't see.
+ */
+async function jobLabel(app: App, kind: string, p: Record<string, unknown>, viewer: string | null): Promise<string | null> {
   const market = (event: unknown) => app.fx.markets.find((m) => m.eventKey === event)?.title ?? "an event";
   if (kind === "execute" || kind === "close") {
     const row = await getStrategyByAccount(app.db, String(p.strategy));
-    const title = row?.title ?? "a future";
+    if (!row || !viewer || row.owner !== viewer) return null;
+    const title = row.title;
     if (kind === "close") return `Close “${title}” (${p.mode === "EXPIRE" ? "expired" : "all steps settled"})`;
-    const label = row?.doc.actions[Number(p.action)]?.label ?? `step ${Number(p.action) + 1}`;
+    const label = row.doc.actions[Number(p.action)]?.label ?? `step ${Number(p.action) + 1}`;
     return `Run ${Number(p.run) + 1} of “${label}” in “${title}”`;
   }
   if (kind === "observe") return `Observe the escrow balance for “${market(p.event)}”`;
   if (kind === "finalize") return `Record that “${market(p.event)}” is final`;
   if (kind === "void-disputed") return `Void the disputed “${market(p.event)}”`;
-  return kind;
+  return null;
 }
 
 export async function ops(app: App, owner: string | null): Promise<OpsStatus> {
@@ -162,16 +168,21 @@ export async function ops(app: App, owner: string | null): Promise<OpsStatus> {
     mode: app.mode,
     keeper: { running: keeperAlive, lastTickAt: keeper?.lastTickAt ?? 0, ticks: keeper?.ticks ?? 0 },
     jobs: [
-      ...(await Promise.all(
-        jobs
-          .filter((j) => j.state !== "SUCCEEDED" || nowWall - Math.floor(j.updatedAt.getTime() / 1000) < 30)
-          .map(async (j) => ({ id: j.key, kind: await jobLabel(app, j.kind, j.payload), state: JOB_STATE[j.state] ?? j.state.toLowerCase(), attempts: j.attempts, runAt: Math.floor(j.runAt.getTime() / 1000), ...(j.lastError ? { lastError: j.lastError } : {}) })),
-      )),
+      ...(
+        await Promise.all(
+          jobs
+            .filter((j) => j.state !== "SUCCEEDED" || nowWall - Math.floor(j.updatedAt.getTime() / 1000) < 30)
+            .map(async (j) => {
+              const kind = await jobLabel(app, j.kind, j.payload, owner);
+              return kind ? { id: j.key, kind, state: JOB_STATE[j.state] ?? j.state.toLowerCase(), attempts: j.attempts, runAt: Math.floor(j.runAt.getTime() / 1000), ...(j.lastError ? { lastError: j.lastError } : {}) } : null;
+            }),
+        )
+      ).filter((j): j is NonNullable<typeof j> => j !== null),
       ...readiness.filter((r) => r.state !== "queued"),
     ],
     reconciliation: rec,
     health: [
-      { name: "Validator RPC", ok: chainHealth.ok, detail: chainHealth.ok ? `${app.cfg.RPC_URL} · ${chainHealth.detail}` : chainHealth.detail },
+      { name: "Validator RPC", ok: chainHealth.ok, detail: chainHealth.ok ? `${rpcHost(app.cfg.RPC_URL)} · ${chainHealth.detail}` : chainHealth.detail },
       { name: "Keeper worker", ok: keeperAlive, detail: keeper ? `last tick ${nowWall - keeper.at}s ago · ${keeper.ticks} ticks` : "not running — start it with: pnpm --filter @maybe/server worker" },
       { name: "Ledger reconciliation", ok: rec[0]?.ok ?? true, detail: rec[0]?.detail ?? "not run yet" },
       { name: "Database", ok: true, detail: "PostgreSQL (projections, intents, jobs, outbox)" },

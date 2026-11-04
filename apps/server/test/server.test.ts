@@ -4,11 +4,30 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import bs58 from "bs58";
 import { templateById, buildFixtures, type Strategy } from "@maybe/core";
 import type { Db } from "../src/db.ts";
-import { loadConfig, ConfigError } from "../src/config.ts";
+import { loadConfig, ConfigError, isLocalRpc, rpcHost } from "../src/config.ts";
 import { claim, defer, enqueue, fail, succeed } from "../src/jobs.ts";
 import { createChallenge, rateLimit, sessionAddress, verifyChallenge, AuthError } from "../src/auth.ts";
 import { publish } from "../src/outbox.ts";
-import { createIntent, ensureUser, getStrategy, markEffect, saveDraft, updateStrategy, insertReceipt, logActivity, listActivity, insertRoom, insertRoomVersion, leaseIntent } from "../src/store.ts";
+import {
+  authorizationInFlight,
+  createIntent,
+  ensureUser,
+  getIntent,
+  getStrategy,
+  insertReceipt,
+  insertRoom,
+  insertRoomVersion,
+  leaseIntent,
+  listActivity,
+  lockStrategy,
+  logActivity,
+  markEffect,
+  releaseIntent,
+  saveDraft,
+  updateStrategy,
+  voidBuiltAuthorizations,
+} from "../src/store.ts";
+import { withTx } from "../src/db.ts";
 import { freshDb, TEST_DB } from "./helpers.ts";
 
 let db: Db;
@@ -34,6 +53,21 @@ describe("configuration safety", () => {
     const ok = loadConfig({ MAYBE_MODE: "production", ALLOW_DEV_ATTESTORS: "false", RPC_URL: "https://rpc.example.org", DATABASE_URL: "postgres://x:secret@db/maybe" });
     expect(ok.MAYBE_MODE).toBe("production");
     expect(loadConfig({}).MAYBE_MODE).toBe("localnet");
+  });
+
+  it("localnet (test faucets, dev attestors, server-held keys) only runs against a local validator", () => {
+    expect(() => loadConfig({ RPC_URL: "https://api.devnet.solana.com" })).toThrow(/local RPC_URL/);
+    expect(() => loadConfig({ MAYBE_MODE: "localnet", RPC_URL: "http://localhost.evil.example:8899" })).toThrow(/local RPC_URL/);
+    expect(loadConfig({ RPC_URL: "http://host.docker.internal:8899" }).MAYBE_MODE).toBe("localnet");
+    expect(isLocalRpc("http://[::1]:8899")).toBe(true);
+    expect(isLocalRpc("http://127.0.0.1:8899")).toBe(true);
+    expect(isLocalRpc("not a url")).toBe(false);
+    expect(loadConfig({ MAYBE_MODE: "devnet", RPC_URL: "https://api.devnet.solana.com" }).MAYBE_MODE).toBe("devnet");
+  });
+
+  it("RPC URLs are shown by host only (provider keys live in the path or query)", () => {
+    expect(rpcHost("https://rpc.example.org/v1/secret-key?api-key=abc")).toBe("rpc.example.org");
+    expect(rpcHost("::nope")).toBe("an invalid URL");
   });
 });
 
@@ -80,6 +114,25 @@ describe("durable jobs", () => {
     const r = await db.query("SELECT state, attempts, last_error FROM jobs WHERE idempotency_key = 'defer:1'");
     expect(r.rows[0]).toEqual({ state: "RETRY_WAIT", attempts: 0, last_error: "waiting" });
   });
+
+  it("a dead job for work that's still valid comes back after a pause, with fresh attempts; never sooner", async () => {
+    await enqueue(db, "t-revive", "revive:1", {}, { maxAttempts: 1 });
+    const [j] = await claim(db, "w", ["t-revive"]);
+    expect(await fail(db, j!, "w", "MinOutNotMet", { retryable: true })).toBe("DEAD");
+    // still within the pause: nothing happens
+    expect(await enqueue(db, "t-revive", "revive:1", {}, { reviveDeadAfterSeconds: 300 })).toBe(false);
+    // without the option a dead job stays dead (finished work keeps its key)
+    await db.query("UPDATE jobs SET updated_at = now() - interval '10 minutes' WHERE idempotency_key = 'revive:1'");
+    expect(await enqueue(db, "t-revive", "revive:1", {})).toBe(false);
+    expect(await enqueue(db, "t-revive", "revive:1", {}, { reviveDeadAfterSeconds: 300 })).toBe(true);
+    const r = await db.query("SELECT state, attempts FROM jobs WHERE idempotency_key = 'revive:1'");
+    expect(r.rows[0]).toEqual({ state: "QUEUED", attempts: 0 });
+    // a succeeded job is never revived
+    const [k] = await claim(db, "w", ["t-revive"]);
+    expect(await succeed(db, k!, "w")).toBe(true);
+    await db.query("UPDATE jobs SET updated_at = now() - interval '10 minutes' WHERE idempotency_key = 'revive:1'");
+    expect(await enqueue(db, "t-revive", "revive:1", {}, { reviveDeadAfterSeconds: 300 })).toBe(false);
+  });
 });
 
 describe("sign-in with Solana", () => {
@@ -114,6 +167,16 @@ describe("sign-in with Solana", () => {
     const results = [];
     for (let i = 0; i < 5; i++) results.push(await rateLimit(db, "rl:test", 3));
     expect(results).toEqual([true, true, true, false, false]);
+  });
+
+  it("hammering a limited bucket doesn't extend the lockout", async () => {
+    for (let i = 0; i < 60; i++) await rateLimit(db, "rl:hammer", 60);
+    for (let i = 0; i < 200; i++) expect(await rateLimit(db, "rl:hammer", 60)).toBe(false);
+    const r = await db.query("SELECT tokens FROM rate_limits WHERE bucket = 'rl:hammer'");
+    expect(r.rows[0].tokens).toBeGreaterThanOrEqual(-1);
+    // 60 per minute refills one token a second: usable again ~2 s after the client stops
+    await new Promise((res) => setTimeout(res, 2300));
+    expect(await rateLimit(db, "rl:hammer", 60)).toBe(true);
   });
 });
 
@@ -174,6 +237,57 @@ describe("store invariants", () => {
     await db.query("UPDATE intents SET state = 'SUBMITTING' WHERE id = 'int_a'");
     expect(await leaseIntent(db, "int_a", "r1")).toBe(true);
     expect(await leaseIntent(db, "int_a", "r2")).toBe(false);
+  });
+
+  it("an intent lease admits one holder: renewals extend it, a second holder waits for release or expiry", async () => {
+    const w = wallet();
+    await createIntent(db, { id: "int_l", key: `${w.address}:lease`, kind: "deposit", actor: w.address, owner: w.address, payload: {} });
+    expect(await leaseIntent(db, "int_l", "api@h:1:aa/run_1")).toBe(false); // only SUBMITTING intents are run
+    await db.query("UPDATE intents SET state = 'SUBMITTING' WHERE id = 'int_l'");
+    expect(await leaseIntent(db, "int_l", "api@h:1:aa/run_1", 1)).toBe(true);
+    // same process, different runIntent call: a different holder, refused while the lease is live
+    expect(await leaseIntent(db, "int_l", "api@h:1:aa/run_2")).toBe(false);
+    expect(await leaseIntent(db, "int_l", "api@h:1:aa/run_1", 1)).toBe(true); // heartbeat
+    await new Promise((r) => setTimeout(r, 1200));
+    // the holder stopped beating (crashed): the lease lapses and someone else takes over…
+    expect(await leaseIntent(db, "int_l", "worker@h:2:bb/run_3")).toBe(true);
+    // …and the old holder's next heartbeat fails, so it stops instead of writing
+    expect(await leaseIntent(db, "int_l", "api@h:1:aa/run_1")).toBe(false);
+    // release only frees the caller's own lease
+    await releaseIntent(db, "int_l", "api@h:1:aa/run_1");
+    expect(await leaseIntent(db, "int_l", "api@h:1:aa/run_2")).toBe(false);
+    await releaseIntent(db, "int_l", "worker@h:2:bb/run_3");
+    expect(await leaseIntent(db, "int_l", "api@h:1:aa/run_2")).toBe(true);
+  });
+
+  it("one authorization at a time: newer requests void older unsigned ones; in-flight ones are visible under the row lock", async () => {
+    const w = wallet();
+    await ensureUser(db, w.address);
+    const d = { ...doc(), id: "fut_guard" };
+    await saveDraft(db, w.address, d, "READY");
+    for (const id of ["int_g1", "int_g2", "int_g3"]) await createIntent(db, { id, key: `${w.address}:${id}`, kind: "authorize", actor: w.address, owner: w.address, strategyId: d.id, payload: { planHash: "aa" } });
+    expect(await voidBuiltAuthorizations(db, d.id, "Replaced by a newer authorization request.", "int_g3")).toBe(2);
+    expect((await getIntent(db, "int_g1"))!.state).toBe("FAILED");
+    expect((await getIntent(db, "int_g3"))!.state).toBe("BUILT");
+    expect(await authorizationInFlight(db, d.id)).toBe(false);
+    await db.query("UPDATE intents SET state = 'SUBMITTING' WHERE id = 'int_g3'");
+    expect(await authorizationInFlight(db, d.id)).toBe(true);
+    // a submitted (in-flight) authorization is never voided by an edit
+    expect(await voidBuiltAuthorizations(db, d.id, "The future was edited after these transactions were prepared.")).toBe(0);
+    // the row lock serializes: a second locker waits until the first transaction ends
+    const order: string[] = [];
+    await withTx(db, async (c) => {
+      await lockStrategy(c, d.id);
+      const second = withTx(db, async (c2) => {
+        await lockStrategy(c2, d.id);
+        order.push("second");
+      });
+      await new Promise((r) => setTimeout(r, 150));
+      order.push("first");
+      void second;
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(order).toEqual(["first", "second"]);
   });
 
   it("receipts are unique per (strategy, action, run) and activity dedupes", async () => {

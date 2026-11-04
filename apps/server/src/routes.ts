@@ -1,5 +1,7 @@
 import { Hono, type Context } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
+import { getConnInfo } from "@hono/node-server/conninfo";
 import { streamSSE } from "hono/streaming";
 import { PublicKey } from "@solana/web3.js";
 import { z } from "zod";
@@ -40,6 +42,7 @@ import {
   Conflict,
   NotFound,
   audit,
+  authorizationInFlight,
   bumpCopies,
   deleteDraft,
   ensureUser,
@@ -53,12 +56,14 @@ import {
   listRooms,
   listSessions,
   listStrategies,
+  lockStrategy,
   logActivity,
   roomBySourceDoc,
   saveDraft,
   saveSession,
   updateStrategy,
   vaultProjection,
+  voidBuiltAuthorizations,
   type SessionRow,
 } from "./store.ts";
 import { assets, chainContext, lookupFor, market, markets, ops, policies, portfolio, records, strategyViews } from "./views.ts";
@@ -86,8 +91,34 @@ async function body<T>(c: Context, schema?: z.ZodType<T>): Promise<T> {
 }
 
 const zUnits = z.bigint().refine((v) => v > 0n && v < 2n ** 64n, "must be a positive u64 amount");
+/** a cap of 0 allows nothing; never negative and never past u64 (it would wrap into an unlimited cap) */
+const zCap = z.bigint().refine((v) => v >= 0n && v < 2n ** 64n, "must be a u64 amount (0 or more)");
 const zAddr = z.string().refine(isAddress, "not a Solana address");
 const zDoc = z.custom<Strategy>((v) => !!v && typeof v === "object" && typeof (v as Strategy).id === "string" && Array.isArray((v as Strategy).actions), "not a strategy document");
+
+const MAX_BODY_BYTES = 256 * 1024;
+const MAX_STREAMS = 2000;
+const MAX_STREAMS_PER_IP = 8;
+
+/**
+ * The client's address for rate limiting: the socket peer, or — behind `hops` trusted proxies —
+ * the entry those proxies appended to X-Forwarded-For. Entries further left are client-supplied
+ * and never trusted.
+ */
+function clientIp(c: Context, hops: number): string {
+  let peer = "unknown";
+  try {
+    peer = getConnInfo(c).remote.address ?? "unknown";
+  } catch {
+    // not a Node socket (in-process test requests)
+  }
+  if (hops <= 0) return peer;
+  const chain = (c.req.header("x-forwarded-for") ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  return chain[chain.length - hops] ?? peer;
+}
+
+/** Lifecycle states a future can be authorized from (anything else is in flight or already on-chain). */
+const AUTHORIZABLE = new Set<string>(["DRAFT", "INVALID", "READY", "AWAITING_SIGNATURE", "ACTIVATION_FAILED"]);
 
 /** u64 PDA seed for a document: its numeric nonce, else a hash of id+nonce. */
 function seedFor(doc: Strategy, bump = 0n): bigint {
@@ -103,11 +134,13 @@ export function buildRoutes(app: App, hub: Hub): Hono<Env> {
 
   api.use("*", cors({ origin: (o) => (o === cfg.WEB_ORIGIN || (local && /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(o)) ? o : null), allowHeaders: ["content-type", "authorization", "idempotency-key"], allowMethods: ["GET", "POST", "DELETE", "OPTIONS"], maxAge: 600 }));
 
+  // bodies here are small JSON documents; parsing is the expensive part, so cap it before it starts
+  api.use("*", bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => json(c, { error: "Request too large." }, 413) }));
+
   api.use("*", async (c, next) => {
     const user = await sessionAddress(app.db, c.req.header("authorization"));
     c.set("user", user);
-    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
-    if (c.req.path !== "/v1/stream" && !(await rateLimit(app.db, `rl:${user ?? ip}`, cfg.RATE_LIMIT_PER_MINUTE))) return json(c, { error: "Too many requests. Slow down and try again in a moment." }, 429);
+    if (c.req.path !== "/v1/stream" && !(await rateLimit(app.db, `rl:${user ?? `ip:${clientIp(c, cfg.TRUST_PROXY_HOPS)}`}`, cfg.RATE_LIMIT_PER_MINUTE))) return json(c, { error: "Too many requests. Slow down and try again in a moment." }, 429);
     await next();
   });
 
@@ -137,18 +170,39 @@ export function buildRoutes(app: App, hub: Hub): Hono<Env> {
   api.get("/v1/assets", async (c) => json(c, await assets(app)));
   api.get("/v1/ops", async (c) => json(c, await ops(app, c.get("user"))));
 
-  api.get("/v1/stream", (c) =>
-    streamSSE(c, async (stream) => {
+  // live updates: a few streams per client address and a ceiling overall, so idle connections can't pile up
+  const streamsByIp = new Map<string, number>();
+  let streams = 0;
+  api.get("/v1/stream", (c) => {
+    const ip = clientIp(c, cfg.TRUST_PROXY_HOPS);
+    if (streams >= MAX_STREAMS || (streamsByIp.get(ip) ?? 0) >= MAX_STREAMS_PER_IP) return json(c, { error: "Too many open live-update connections." }, 429);
+    streams++;
+    streamsByIp.set(ip, (streamsByIp.get(ip) ?? 0) + 1);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      streams--;
+      const n = (streamsByIp.get(ip) ?? 1) - 1;
+      if (n > 0) streamsByIp.set(ip, n);
+      else streamsByIp.delete(ip);
+    };
+    return streamSSE(c, async (stream) => {
       let open = true;
       const remove = hub.add((data) => void stream.writeSSE({ data }).catch(() => (open = false)));
       stream.onAbort(() => {
         open = false;
         remove();
+        release();
       });
-      while (open) await stream.sleep(30_000);
-      remove();
-    }),
-  );
+      try {
+        while (open) await stream.sleep(30_000);
+      } finally {
+        remove();
+        release();
+      }
+    });
+  });
 
   // ───────────────────────────────────────── auth & wallet
   api.post("/v1/auth/challenge", async (c) => {
@@ -221,7 +275,14 @@ export function buildRoutes(app: App, hub: Hub): Hono<Env> {
     await ensureUser(app.db, u);
     const existing = await getStrategy(app.db, doc.id);
     if (existing && existing.owner !== u) throw new Forbidden("That id belongs to another wallet's future.");
+    if (existing && stringify(existing.doc) === stringify(doc)) {
+      // unchanged: keep its status (a prepared authorization stays valid)
+      const [r] = await records(app, [existing]);
+      return json(c, strategyView(r!, await chainContext(app)));
+    }
     const row = await saveDraft(app.db, u, doc, draftStatus(doc, app.fx, await app.now()), { supersedes: doc.meta?.supersedes ?? null });
+    // the plan changed: transactions prepared for the old one can no longer be signed
+    if (existing) await voidBuiltAuthorizations(app.db, doc.id, "The future was edited after these transactions were prepared.");
     await app.publish(["strategies"]);
     const [r] = await records(app, [row]);
     return json(c, strategyView(r!, await chainContext(app)));
@@ -231,6 +292,7 @@ export function buildRoutes(app: App, hub: Hub): Hono<Env> {
     const u = user(c);
     await owned(c, c.req.param("id"));
     await deleteDraft(app.db, u, c.req.param("id"));
+    await voidBuiltAuthorizations(app.db, c.req.param("id"), "The future was deleted.");
     await app.publish(["strategies"]);
     return json(c, { ok: true });
   });
@@ -247,11 +309,18 @@ export function buildRoutes(app: App, hub: Hub): Hono<Env> {
     return json(c, prepareStrategy(doc, { fx: app.fx, now: await app.now(), available: await available(u), lookup: await lookupFor(app, u), environment: `${app.mode === "localnet" ? "Local validator" : "Devnet"} — test tokens only` }));
   });
 
-  /** Build the exact transactions for a reviewed plan. The hash the user reviewed must still match. */
+  /**
+   * Build the exact transactions for a reviewed plan. The hash the user reviewed must still match.
+   *
+   * Account ids: a future keeps the account id it was first given. Moving to a fresh id is only
+   * allowed past an account that was never activated (nothing was ever reserved there). If the
+   * account already holds this plan and was activated, the future is already authorized — the row
+   * is resynced from the chain instead of funding the same plan twice.
+   */
   async function authorization(c: Context<Env>, id: string, expectedHash: string, o: { creator: PublicKey; policy?: { address: string; label: string } }) {
     const u = user(c);
     const s = await owned(c, id);
-    if (s.strategyAccount && s.status !== "ACTIVATION_FAILED" && s.status !== "AWAITING_SIGNATURE") throw new Conflict("Already authorized.");
+    if (!AUTHORIZABLE.has(s.status)) throw new Conflict(s.status === "UPLOADING" || s.status === "ACTIVATING" ? "This future is being authorized right now." : "Already authorized.");
     await app.indexer.syncVault(u).catch(() => undefined);
     const prep = prepareStrategy(s.doc, { fx: app.fx, now: await app.now(), available: await available(u), lookup: await lookupFor(app, u), environment: app.mode });
     if (!prep.ok || !prep.bytes || !prep.hash) throw new BadRequest(prep.issues.find((i) => i.severity === "error")?.message ?? "This future has problems to fix first.");
@@ -260,28 +329,60 @@ export function buildRoutes(app: App, hub: Hub): Hono<Env> {
     if (!(await app.chain.maybeVault(vault))) throw new BadRequest("Deposit into your vault first: futures reserve from available funds.");
     const supersedesDoc = s.doc.meta?.supersedes?.split("@")[0];
     const old = supersedesDoc ? (await listStrategies(app.db, u)).find((x) => x.doc.id === supersedesDoc && x.id !== id && (x.status === "ACTIVE" || x.status === "PAUSED") && x.strategyAccount) : undefined;
-    let built: Awaited<ReturnType<typeof app.chain.authorizePlan>> | null = null;
-    let seed = s.strategySeed ?? seedFor(s.doc);
-    for (let bump = 0n; bump < 4n && !built; bump++) {
-      try {
-        seed = s.strategySeed !== null && bump === 0n ? s.strategySeed : seedFor(s.doc, bump);
-        built = await app.chain.authorizePlan({ creator: o.creator, vault, strategyId: seed, version: s.doc.version, bytes: prep.bytes, ...(o.policy ? { policy: new PublicKey(o.policy.address) } : {}), ...(old?.strategyAccount && !o.policy ? { supersede: new PublicKey(old.strategyAccount) } : {}) });
-      } catch (e) {
-        if (!(e instanceof ChainError) || !/already uploaded|already active/.test(e.message)) throw e;
+    // a session key can't cancel the version it replaces, and running both was never what "new version" meant
+    if (old && o.policy) throw new Conflict("This is a new version of a future that's still active. Authorize it with your wallet, which cancels the previous version in the same step.");
+
+    const candidates = [...new Set([...(s.strategySeed !== null ? [s.strategySeed] : []), ...[0n, 1n, 2n, 3n, 4n, 5n].map((b) => seedFor(s.doc, b))])];
+    let seed: bigint | null = null;
+    for (const cand of candidates) {
+      const probe = await app.chain.probeStrategy(vault, cand, prep.bytes);
+      if (probe.state === "absent" || (probe.state === "uploading" && probe.sameHash)) {
+        seed = cand;
+        break;
       }
+      if (probe.state === "activated" && probe.sameHash) {
+        // already on-chain: never fund it twice. Point the row at it; the vault sync sets the status from the chain.
+        await updateStrategy(app.db, id, { strategyAccount: probe.address.toBase58(), strategySeed: cand, planHash: prep.hash, planBytes: prep.bytes, lastError: null });
+        await app.indexer.syncVault(u).catch(() => undefined);
+        await app.publish(["strategies", "portfolio"]);
+        throw new Conflict("This future is already authorized on-chain. Nothing new was prepared.");
+      }
+      if (probe.state === "activated" && cand === s.strategySeed) {
+        // this future's own account runs a different plan: it was edited after an activation landed
+        log.error({ strategy: id, account: probe.address.toBase58() }, "strategy row and on-chain plan disagree");
+        throw new Conflict("An earlier plan for this future is already active on-chain. Open it from Futures, or make a new version.");
+      }
+      // an account that was never activated (different plan), or another future's: try the next id
     }
-    if (!built) throw new Conflict("Couldn't find a free account id for this future. Start a new version.");
-    await updateStrategy(app.db, id, { status: "AWAITING_SIGNATURE", planHash: prep.hash, planBytes: prep.bytes, strategySeed: seed, viaPolicy: o.policy?.address ?? null });
+    if (seed === null) throw new Conflict("Couldn't find a free account id for this future. Start a new version.");
+    const built = await app.chain.authorizePlan({ creator: o.creator, vault, strategyId: seed, version: s.doc.version, bytes: prep.bytes, ...(o.policy ? { policy: new PublicKey(o.policy.address) } : {}), ...(old?.strategyAccount ? { supersede: new PublicKey(old.strategyAccount) } : {}) });
+    const createSeq = built.txs.findIndex((t) => t.role === "create");
     const reservations = reservationByMint(decodePlan(prep.bytes));
-    const intent = await buildIntent(app, {
-      kind: "authorize",
-      owner: u,
-      actor: o.creator.toBase58(),
-      key: `${idem(c)}:${prep.hash}`,
-      strategyId: id,
-      payload: { strategyAccount: built.strategy.toBase58(), reservations, ...(old ? { supersedes: old.id } : {}), ...(o.policy ? { policyLabel: o.policy.label } : {}) },
-      plans: built.txs,
-    });
+    const plan = { hash: prep.hash, bytes: prep.bytes };
+    const intent = await buildIntent(
+      app,
+      {
+        kind: "authorize",
+        owner: u,
+        actor: o.creator.toBase58(),
+        key: `${idem(c)}:${prep.hash}`,
+        strategyId: id,
+        payload: { strategyAccount: built.strategy.toBase58(), planHash: prep.hash, accountSeq: createSeq >= 0 ? createSeq : 0, reservations, ...(old ? { supersedes: old.id } : {}), ...(o.policy ? { policyLabel: o.policy.label } : {}) },
+        plans: built.txs,
+      },
+      {
+        // one authorization at a time, and only for the row as it was when these transactions were built
+        before: async (tx) => {
+          const now = await lockStrategy(tx, id);
+          if (!now || stringify(now.doc) !== stringify(s.doc) || now.status !== s.status || now.strategyAccount !== s.strategyAccount || now.strategySeed !== s.strategySeed) throw new Conflict("This future changed while its transactions were being prepared. Try again.");
+          if (await authorizationInFlight(tx, id)) throw new Conflict("This future is being authorized right now.");
+        },
+        after: async (tx, intentId) => {
+          await voidBuiltAuthorizations(tx, id, "Replaced by a newer authorization request.", intentId);
+          await updateStrategy(tx, id, { status: "AWAITING_SIGNATURE", planHash: plan.hash, planBytes: plan.bytes, strategySeed: seed, viaPolicy: o.policy?.address ?? null, lastError: null });
+        },
+      },
+    );
     await app.publish(["strategies"]);
     return intent;
   }
@@ -416,8 +517,8 @@ export function buildRoutes(app: App, hub: Hub): Hono<Env> {
         allowedMints: z.array(zAddr).min(1).max(6),
         allowedRoutes: z.array(zAddr).max(6),
         allowedRecipients: z.array(zAddr).max(4),
-        maxTotal: z.record(z.string(), z.bigint()),
-        maxPerAction: z.record(z.string(), z.bigint()),
+        maxTotal: z.record(zAddr, zCap),
+        maxPerAction: z.record(zAddr, zCap),
         maxFeeBps: z.number().int().min(0).max(100),
         expiresAt: z.number().int(),
       }),
