@@ -4,7 +4,7 @@
  * or sends a transaction.
  */
 
-import { aboveProbability, bidPrice, FlowTracker, graduationProbability, linePrice, realizedVolPerSqrtHour } from "./model.ts";
+import { aboveProbability, bidPrice, FlowTracker, graduationProbability, linePrice, priceSigma, realizedVolPerSqrtHour } from "./model.ts";
 import { bondingCurveAddress, curveFromCreate, curveMcapSol, curveProgress, curveRemainingSol, decodeCurve, decodePool, decodeTokenAccount, isStandardCurve, TOTAL_SUPPLY_UNITS, type CurveState, WSOL } from "./solana.ts";
 import { fetchMeta, ipfsUrl, Jupiter, PumpFeed, SolanaRpc, type CreateEvent, type JupToken, type MigrationEvent, type SourceHealth } from "./sources.ts";
 
@@ -696,8 +696,7 @@ export class LiveEngine {
     if (m.kind === "above-1h") {
       if (!t.mcapUsd || !m.strikeUsd) return;
       const hist = this.history.get(m.mint) ?? [];
-      const vol = realizedVolPerSqrtHour(hist.slice(-120));
-      const sigma = vol === null ? 1.6 : Math.min(6, 0.5 * vol + 0.5 * 1.6);
+      const sigma = priceSigma(realizedVolPerSqrtHour(hist.slice(-120)));
       p = aboveProbability(t.mcapUsd / m.strikeUsd, (m.closesAt - now) / 3_600_000, sigma);
     } else {
       if (t.stage === "graduated") return;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { b58decode, b58encode, bondingCurveAddress, curveFromCreate, curveMcapSol, curveProgress, curveRemainingSol, decodeCurve, decodePool, decodeTokenAccount, isAddress, isOnCurve, isStandardCurve, INITIAL_REAL_TOKENS, type CurveState } from "./solana.ts";
-import { aboveProbability, bidPrice, firstPassage, FlowTracker, FLOW_PRIOR, graduationProbability, linePrice, normCdf, realizedVolPerSqrtHour } from "./model.ts";
+import { aboveProbability, bidPrice, firstPassage, FlowTracker, FLOW_PRIOR, graduationProbability, linePrice, normCdf, priceSigma, realizedVolPerSqrtHour } from "./model.ts";
 import { ipfsUrl } from "./sources.ts";
 import { LiveEngine, type Market } from "./engine.ts";
 
@@ -130,6 +130,16 @@ describe("the live line", () => {
     expect(aboveProbability(1.5, 0.5, 1.6)).toBeGreaterThan(aboveProbability(1, 0.5, 1.6));
     expect(aboveProbability(0.5, 0.5, 1.6)).toBeLessThan(aboveProbability(1, 0.5, 1.6));
     expect(aboveProbability(1.2, 0, 1.6)).toBeCloseTo(0.995, 3);
+    // at the strike an hour out: a little under even, from the downward median drift
+    const atStrike = aboveProbability(1, 1, priceSigma(null));
+    expect(atStrike).toBeGreaterThan(0.35);
+    expect(atStrike).toBeLessThan(0.5);
+    // 10% above the strike is better than at it, and well above it is likely
+    expect(aboveProbability(1.1, 1, priceSigma(null))).toBeGreaterThan(atStrike);
+    expect(aboveProbability(3, 1, priceSigma(null))).toBeGreaterThan(0.8);
+    // trade-by-trade volatility is tempered and bounded
+    expect(priceSigma(20)).toBe(2.5);
+    expect(priceSigma(0)).toBe(0.5);
   });
 
   it("the line charges a spread both ways", () => {

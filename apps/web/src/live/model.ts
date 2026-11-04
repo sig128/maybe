@@ -69,13 +69,29 @@ export function graduationProbability(remainingSol: number, flow: FlowEstimate, 
   return clampProb(p);
 }
 
-/** Probability a price ends above a strike: lognormal with drift (per hour) and volatility (per √hour). */
-export function aboveProbability(priceRatio: number, hoursLeft: number, sigmaPerSqrtHour: number, driftPerHour = -0.15): number {
+/**
+ * Probability a price ends above a strike. The log of the price moves as a Brownian motion with a
+ * median drift (per hour; graduates typically drift lower) and a volatility (per √hour), so the odds
+ * answer to where the price is now: about 40% at the strike an hour out, more above it, less below.
+ */
+export function aboveProbability(priceRatio: number, hoursLeft: number, sigmaPerSqrtHour: number, logDriftPerHour = PRICE_PRIOR.logDrift): number {
   if (!(priceRatio > 0)) return 0.5;
   if (hoursLeft <= 0) return priceRatio >= 1 ? 0.995 : 0.005;
   const s = Math.max(0.25, sigmaPerSqrtHour) * Math.sqrt(hoursLeft);
-  const z = (Math.log(priceRatio) + (driftPerHour - (sigmaPerSqrtHour * sigmaPerSqrtHour) / 2) * hoursLeft) / s;
+  const z = (Math.log(priceRatio) + logDriftPerHour * hoursLeft) / s;
   return clampProb(normCdf(z));
+}
+
+/** Price prior for graduated tokens: median log drift −0.25/h (about −22% an hour), volatility 1.0/√h. */
+export const PRICE_PRIOR = { logDrift: -0.25, sigma: 1.0, minSigma: 0.5, maxSigma: 2.5 } as const;
+
+/**
+ * Volatility for a price question: realized volatility from trade-by-trade samples runs high (each
+ * trade's jump counts in full), so it's blended half-and-half with the prior and kept within bounds.
+ */
+export function priceSigma(realized: number | null): number {
+  if (realized === null) return PRICE_PRIOR.sigma;
+  return Math.min(PRICE_PRIOR.maxSigma, Math.max(PRICE_PRIOR.minSigma, 0.5 * realized + 0.5 * PRICE_PRIOR.sigma));
 }
 
 export function clampProb(p: number): number {
