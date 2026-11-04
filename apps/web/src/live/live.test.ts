@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { b58decode, b58encode, bondingCurveAddress, curveFromCreate, curveMcapSol, curveProgress, curveRemainingSol, decodeCurve, decodePool, decodeTokenAccount, isAddress, isOnCurve, INITIAL_REAL_TOKENS, type CurveState } from "./solana.ts";
+import { b58decode, b58encode, bondingCurveAddress, curveFromCreate, curveMcapSol, curveProgress, curveRemainingSol, decodeCurve, decodePool, decodeTokenAccount, isAddress, isOnCurve, isStandardCurve, INITIAL_REAL_TOKENS, type CurveState } from "./solana.ts";
 import { aboveProbability, bidPrice, firstPassage, FlowTracker, FLOW_PRIOR, graduationProbability, linePrice, normCdf, realizedVolPerSqrtHour } from "./model.ts";
 import { ipfsUrl } from "./sources.ts";
 import { LiveEngine, type Market } from "./engine.ts";
@@ -57,6 +57,23 @@ describe("solana helpers", () => {
     expect(curveProgress(half)).toBeCloseTo(0.5, 6);
     expect(curveProgress({ ...fresh, complete: true })).toBe(1);
     expect(decodeCurve(new Uint8Array(40))).toBeNull();
+  });
+
+  it("accepts standard SOL curves and refuses curves launched with other reserves", () => {
+    // real PumpPortal create messages, a standard launch with a dev buy and a bare one
+    const withDevBuy = curveFromCreate({ vTokensInBondingCurve: 1059053614.995806, vSolInBondingCurve: 30.395061726999984 })!;
+    const bare = curveFromCreate({ vTokensInBondingCurve: 1072646865.308542, vSolInBondingCurve: 30.009876540999997 })!;
+    expect(isStandardCurve(withDevBuy)).toBe(true);
+    expect(isStandardCurve(bare)).toBe(true);
+    // launches the board saw with other parameters: the same token reserves against ~775 and ~0.7 "SOL"
+    expect(isStandardCurve(curveFromCreate({ vTokensInBondingCurve: 1_073_000_000, vSolInBondingCurve: 775 })!)).toBe(false);
+    expect(isStandardCurve(curveFromCreate({ vTokensInBondingCurve: 1_073_000_000, vSolInBondingCurve: 0.7 })!)).toBe(false);
+    // halfway up a standard curve on-chain: k and the virtual offset are unchanged by trading
+    const vTok = 600_000_000n * 1_000_000n;
+    const half: CurveState = { virtualTokens: vTok, virtualSol: (1_073_000_000n * 1_000_000n * 30_000_000_000n) / vTok + 1n, realTokens: vTok - (1_073_000_000n * 1_000_000n - INITIAL_REAL_TOKENS), realSol: 0n, totalSupply: 0n, complete: false, creator: "" };
+    expect(isStandardCurve(half)).toBe(true);
+    // same k, but a different split between real and virtual tokens
+    expect(isStandardCurve({ ...half, realTokens: half.realTokens - 50_000_000n * 1_000_000n })).toBe(false);
   });
 
   it("decodes PumpSwap pools and token accounts at the verified offsets", () => {

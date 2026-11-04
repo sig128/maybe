@@ -70,6 +70,13 @@ export function Links({ t }: { t: Pick<LiveToken, "twitter" | "telegram" | "webs
   );
 }
 
+/** The question as a row has room for it; the drawer shows it in full. */
+export function rowQuestion(m: Market): string {
+  if (m.kind === "grad-1h") return "Graduates within 1h?";
+  if (m.kind === "grad-15m") return "Graduates within 15m?";
+  return m.strikeUsd ? `Above ${usdCompact(m.strikeUsd)} in 1h?` : m.question;
+}
+
 export function placeBet(m: Market, side: "YES" | "NO", stake: number, symbol: string): void {
   const r = liveEngine().buy(m.id, side, stake);
   if (!r.ok) {
@@ -157,7 +164,9 @@ export const TokenRow = memo(function TokenRow({ mint, stake, onOpen }: { mint: 
         </div>
         {m && (
           <div className="orow-q">
-            <span className="oq">{m.question}</span>
+            <span className="oq" title={m.question}>
+              {rowQuestion(m)}
+            </span>
             {m.status === "open" && <Countdown to={m.closesAt} />}
           </div>
         )}

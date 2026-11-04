@@ -150,6 +150,26 @@ export function curveProgress(c: CurveState): number {
   return Math.min(1, Math.max(0, sold));
 }
 
+/** vTok·vSol of a standard pump.fun SOL curve: it launches at 1,073,000,000 tokens × 30 SOL and trades keep it. */
+export const STANDARD_CURVE_K = 1_073_000_000n * 10n ** BigInt(TOKEN_DECIMALS) * 30n * BigInt(LAMPORTS_PER_SOL);
+/** Tokens that exist only virtually (vTok − rTok): 1,073M − 793.1M. Buys and sells move both sides equally. */
+export const STANDARD_VIRTUAL_OFFSET = 1_073_000_000n * 10n ** BigInt(TOKEN_DECIMALS) - INITIAL_REAL_TOKENS;
+
+/**
+ * Whether a curve has pump.fun's standard SOL parameters. Curves launched with other reserves or
+ * another quote asset fail this check; their graduation can't be priced the same way, so the board
+ * leaves them out rather than show numbers that mean nothing.
+ */
+export function isStandardCurve(c: Pick<CurveState, "virtualSol" | "virtualTokens" | "realTokens">): boolean {
+  if (c.virtualTokens <= 0n || c.virtualSol <= 0n || c.realTokens < 0n) return false;
+  const k = c.virtualTokens * c.virtualSol;
+  // each trade's rounding nudges k up by a hair; another launch configuration is off by far more
+  if (k * 100n < STANDARD_CURVE_K * 98n || k * 100n > STANDARD_CURVE_K * 103n) return false;
+  const offset = c.virtualTokens - c.realTokens;
+  const slack = 1_000_000n * 10n ** BigInt(TOKEN_DECIMALS);
+  return offset > STANDARD_VIRTUAL_OFFSET - slack && offset < STANDARD_VIRTUAL_OFFSET + slack;
+}
+
 /** SOL still needed to buy every remaining token on the curve (constant product: vSol·vTok = k). */
 export function curveRemainingSol(c: CurveState): number {
   if (c.complete || c.realTokens <= 0n) return 0;

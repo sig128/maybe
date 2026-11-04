@@ -5,7 +5,7 @@
  */
 
 import { aboveProbability, bidPrice, FlowTracker, graduationProbability, linePrice, realizedVolPerSqrtHour } from "./model.ts";
-import { bondingCurveAddress, curveFromCreate, curveMcapSol, curveProgress, curveRemainingSol, decodeCurve, decodePool, decodeTokenAccount, TOTAL_SUPPLY_UNITS, type CurveState, WSOL } from "./solana.ts";
+import { bondingCurveAddress, curveFromCreate, curveMcapSol, curveProgress, curveRemainingSol, decodeCurve, decodePool, decodeTokenAccount, isStandardCurve, TOTAL_SUPPLY_UNITS, type CurveState, WSOL } from "./solana.ts";
 import { fetchMeta, ipfsUrl, Jupiter, PumpFeed, SolanaRpc, type CreateEvent, type JupToken, type MigrationEvent, type SourceHealth } from "./sources.ts";
 
 export type Stage = "new" | "stretch" | "graduated";
@@ -120,6 +120,9 @@ export interface LiveStatus {
 
 const STRETCH_ENTER = 0.55;
 const STRETCH_LEAVE = 0.4;
+/** Graduates joined from Jupiter's lists must still be alive: questions on a collapsed token mean nothing. */
+const GRADUATED_MIN_MCAP_USD = 8_000;
+const GRADUATED_MIN_LIQUIDITY_USD = 3_000;
 const CAP = { new: 80, stretch: 40, graduated: 40 } as const;
 const START_BALANCE = 10;
 const PRACTICE_KEY = "maybe.odds.practice.v1";
@@ -324,6 +327,8 @@ export class LiveEngine {
     this.launches.push(now);
     this.status = { ...this.status, lastLaunchAt: now };
     const curve = curveFromCreate(e);
+    // launches with non-standard reserves (another quote asset, other parameters) can't be priced here
+    if (!curve || !isStandardCurve(curve)) return;
     const devTokens = typeof e.initialBuy === "number" ? e.initialBuy : 0;
     const tok = this.addToken({
       mint: e.mint,
@@ -393,6 +398,15 @@ export class LiveEngine {
   private applyCurve(mint: string, c: CurveState): void {
     const t = this.tokens.get(mint);
     if (!t) return;
+    if (!c.complete && !isStandardCurve(c)) {
+      // not a standard SOL curve after all: no positions can be priced on it, so it leaves the board
+      if (!this.hasOpenPositions(mint)) {
+        this.drop(mint);
+        this.columnsDirty = true;
+        this.emit();
+      }
+      return;
+    }
     const now = Date.now();
     const realSol = Number(c.realSol) / 1e9;
     this.flows.get(mint)?.observe(now, realSol);
@@ -460,11 +474,11 @@ export class LiveEngine {
       const now = Date.now();
       // on the curve: read each curve once, then subscribe
       const keys = await Promise.all(onCurve.map(async (x) => [x, await bondingCurveAddress(x.id)] as const));
-      const curves = await this.rpc.accounts(keys.map(([, k]) => k));
+      const curves = await this.rpc.accounts(keys.map(([, k]) => k)).catch(() => new Map<string, Uint8Array | null>());
       for (const [x, key] of keys) {
         const data = curves.get(key);
         const c = data ? decodeCurve(data) : null;
-        if (!c || c.complete) continue;
+        if (!c || c.complete || !isStandardCurve(c)) continue;
         const created = ms(x.createdAt) || ms(x.firstPool?.createdAt) || now;
         const progress = curveProgress(c);
         if (progress < STRETCH_ENTER && now - created > 60 * 60_000) continue; // stale and nowhere near graduating
@@ -478,6 +492,8 @@ export class LiveEngine {
         if (stage === "stretch") this.openMarket(x.id, "grad-15m", now, now + 15 * 60_000);
       }
       for (const x of graduated) {
+        // a graduate that has since collapsed makes a meaningless question
+        if ((x.mcap ?? 0) < GRADUATED_MIN_MCAP_USD || (x.liquidity ?? 0) < GRADUATED_MIN_LIQUIDITY_USD) continue;
         const at = ms(x.graduatedAt) || now;
         this.addToken({ mint: x.id, symbol: x.symbol ?? short(x.id), name: x.name ?? "", createdAt: ms(x.createdAt) || at, seenAt: now, source: "seed", stage: "graduated", stageAt: at, graduatedAt: at, progress: 1, ...(x.dev ? { creator: x.dev } : {}) });
         this.applyJup(x);
@@ -621,6 +637,10 @@ export class LiveEngine {
       for (const t of by[s].slice(CAP[s] + 10)) if (!pinned.has(t.mint)) this.drop(t.mint);
     }
     this.columnsDirty = true;
+  }
+
+  private hasOpenPositions(mint: string): boolean {
+    return this.practice.positions.some((p) => p.mint === mint && p.status === "open");
   }
 
   private drop(mint: string): void {
@@ -876,6 +896,14 @@ function loadPractice(): Practice {
 
 let singleton: LiveEngine | null = null;
 export function liveEngine(): LiveEngine {
-  singleton ??= new LiveEngine();
+  if (!singleton) {
+    singleton = new LiveEngine();
+    // ?debug exposes the engine in the console for diagnosing live data; it's read from the page only
+    try {
+      if (new URLSearchParams(globalThis.location?.search ?? "").has("debug")) (globalThis as { maybeOdds?: LiveEngine }).maybeOdds = singleton;
+    } catch {
+      // no location (tests)
+    }
+  }
   return singleton;
 }

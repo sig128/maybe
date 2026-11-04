@@ -115,6 +115,10 @@ export class PumpFeed {
 
 type AccountHandler = (data: Uint8Array | null, slot: number) => void;
 
+/** PublicNode's free endpoint refuses getMultipleAccounts calls with more than 10 accounts. */
+const ACCOUNTS_PER_CALL = 10;
+const PARALLEL_READS = 4;
+
 export class SolanaRpc {
   health: SourceHealth = { state: "connecting", lastAt: 0, latencyMs: null, detail: "PublicNode" };
   slot = 0;
@@ -261,10 +265,19 @@ export class SolanaRpc {
   }
 
   /** getMultipleAccounts in batches of 100. */
+  /**
+   * Read accounts over HTTP. PublicNode's free endpoint takes at most 10 accounts per call, so reads
+   * go out in chunks of 10, a few at a time. The map holds an entry for every account that was read
+   * (null when it doesn't exist); a chunk that failed is simply missing. Throws only when nothing
+   * could be read at all.
+   */
   async accounts(addresses: string[]): Promise<Map<string, Uint8Array | null>> {
     const out = new Map<string, Uint8Array | null>();
-    for (let i = 0; i < addresses.length; i += 100) {
-      const chunk = addresses.slice(i, i + 100);
+    const chunks: string[][] = [];
+    for (let i = 0; i < addresses.length; i += ACCOUNTS_PER_CALL) chunks.push(addresses.slice(i, i + ACCOUNTS_PER_CALL));
+    let failure: unknown = null;
+    let read = 0;
+    const readChunk = async (chunk: string[]) => {
       const t0 = now();
       const res = await fetch(this.http, {
         method: "POST",
@@ -278,7 +291,20 @@ export class SolanaRpc {
       this.health.lastAt = now();
       this.health.latencyMs = now() - t0;
       j.result.value.forEach((v, k) => out.set(chunk[k]!, v ? fromBase64(v.data[0]) : null));
-    }
+      read++;
+    };
+    const queue = [...chunks];
+    const worker = async () => {
+      for (let chunk = queue.shift(); chunk; chunk = queue.shift()) {
+        try {
+          await readChunk(chunk);
+        } catch (e) {
+          failure ??= e;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(PARALLEL_READS, chunks.length) }, worker));
+    if (chunks.length && !read) throw failure ?? new Error("RPC read failed");
     return out;
   }
 
