@@ -4,7 +4,16 @@ Write down what should happen to your money if the world goes one way or another
 
 The plan you review compiles to a bounded binary plan that the vault program itself evaluates. A backend or an agent can submit instructions, but only the program decides what moves.
 
-> **Status.** Runs in two environments: an in-browser **simulation** (no chain, sample data) and a **local Solana validator** with real programs, test tokens, an API server and workers. Nothing is deployed to devnet or mainnet; no real funds move; no token was launched. Live venues (Polymarket, Kalshi/DFlow, Jupiter, PumpSwap) are externally blocked here — see [the feature matrix](docs/FEATURE_MATRIX.md).
+> **Status.** Runs in two environments: an in-browser **simulation** (no chain, sample data) and a **local Solana validator** with real programs, test tokens, an API server and workers. Nothing is deployed to devnet or mainnet; no real funds move; no token was launched. Live venues (Polymarket, Kalshi/DFlow, Jupiter, PumpSwap) are externally blocked for the server here — see [the feature matrix](docs/FEATURE_MATRIX.md).
+
+## Odds: the live board
+
+**[sig128.github.io/maybe](https://sig128.github.io/maybe/)** — every new pump.fun token, streamed from Solana mainnet in your browser, with yes/no questions priced every second: will it graduate within the hour, will it graduate in the next 15 minutes, will it be worth more an hour after graduating. Launches and graduations come from PumpPortal's stream, bonding curves and PumpSwap pools from Solana account subscriptions, holder and volume stats from Jupiter. The odds are MAYBE's own line (a model of on-chain SOL flow), not a market. Positions use practice SOL kept in the browser and settle on what the chain shows; nothing signs a transaction or touches a wallet. Real-money questions need an audited on-chain market and a license first.
+
+```bash
+pnpm dev                                  # then open http://127.0.0.1:5173/odds.html (or /odds inside the app)
+git push && bash scripts/deploy-pages.sh  # publish the board: public build → gh-pages branch → GitHub Pages
+```
 
 ## Quick start
 
@@ -44,7 +53,8 @@ packages/agent    agent roles, tool allowlists, injection boundary, local assist
 packages/sdk      Solana client: PDAs, instructions, decoders, attestations
 programs/         maybe_vault (Anchor), maybe_testvenue (local only), maybe-logic (shared Rust semantics)
 apps/server       API (Hono) + worker: auth, intents, tx pipeline, indexer, keeper, settlement, reconciliation
-apps/web          React app: Overview, Discover, Futures (sentence/graph/list), Review, Money, Agents, Rooms
+apps/web          React app: Overview, Discover, Futures (sentence/graph/list), Review, Money, Agents, Rooms;
+                  Odds (src/live: mainnet streams, curve math, the live line; src/site: the public board)
 scripts/          validator, localnet seed, end-to-end, dev stack, deploy (prepared for review)
 docs/             research, architecture, threat model, semantics, invariants, decisions, deployment
 ```

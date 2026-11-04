@@ -19,7 +19,7 @@ test("the board lays out at every size without sideways scrolling @responsive", 
   await openBoard(page);
   const narrow = (page.viewportSize()?.width ?? 1440) <= 900;
   if (narrow) {
-    await expect(page.getByRole("tab", { name: /Just launched/ })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tab", { name: /Just launched|New/ })).toHaveAttribute("aria-selected", "true");
     await page.getByRole("tab", { name: /Graduated/ }).click();
     await expect(page.getByRole("region", { name: "Graduated" })).toBeVisible();
   } else {

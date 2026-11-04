@@ -1,11 +1,12 @@
 # Deployment (prepared for review — not performed)
 
-Nothing in this repository has been deployed to devnet or mainnet, no Pump token was created, and no real funds were moved. This page lists what a deliberate deployment needs and what the prepared scripts do. Treat it as a checklist for a reviewer, not as instructions to run blindly.
+Nothing in this repository has been deployed to devnet or mainnet, no Pump token was created, and no real funds were moved. The one published piece is the Odds board, a static page that only reads public mainnet data. This page lists what a deliberate deployment needs and what the prepared scripts do. Treat it as a checklist for a reviewer, not as instructions to run blindly.
 
 ## What can be deployed today
 
 | Piece | Ready? | Notes |
 |---|---|---|
+| Odds live board | **Published** | `bash scripts/deploy-pages.sh` builds `odds.html` in public mode and publishes it to GitHub Pages (`gh-pages` branch). Reads public mainnet data in the visitor's browser; practice positions only; no keys. |
 | Web app in simulation mode | Yes | Static build (`pnpm build` → `apps/web/dist`). No backend, no keys, sample data only. Safe to host anywhere. |
 | Web app against an API | Partly | Needs a real wallet adapter (Wallet Standard) instead of the local dev wallet, which the server refuses outside localnet. |
 | API + worker | Code ready | Needs Postgres, a non-local RPC, a keeper key, and an address book for the target cluster (see below). |
@@ -37,5 +38,6 @@ Nothing in this repository has been deployed to devnet or mainnet, no Pump token
 
 ## Scripts
 
+- `scripts/deploy-pages.sh` — publishes the Odds board: refuses to run with uncommitted changes, builds `apps/web` with `VITE_PUBLIC_SITE=1` under `/<repo>/` (or `PAGES_BASE`), and force-pushes the output to `gh-pages` as one commit.
 - `scripts/deploy-programs.sh` — builds, checks the keys aren't the localnet fixtures, prints the plan, and only then deploys and initializes. Requires `--cluster devnet` and `--i-have-reviewed`; refuses `mainnet-beta` unless `MAYBE_ALLOW_MAINNET=I_UNDERSTAND_THIS_HOLDS_REAL_VALUE` is set as well.
 - `scripts/validator.sh`, `scripts/localnet-setup.ts` — local only; setup refuses a non-local RPC.

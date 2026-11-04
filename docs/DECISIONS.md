@@ -75,3 +75,15 @@ Short records of choices that shape the build. Each is reversible unless it says
 **Choice.** Fixture markets are fictional, quotes are deterministic samples tagged "Sample", sample futures and rooms carry a sample badge, and rooms distinguish live / paper / backtest / none.
 
 **Why.** No fabricated followers, returns or volume (master brief §8).
+
+## D13 · Odds reads mainnet from the browser; positions are practice-only
+
+**Choice.** The live board connects straight from the visitor's browser to public sources: PumpPortal's websocket for launches and graduations, a public Solana RPC (PublicNode) for curve and pool accounts, Jupiter for stats. No server sits in between. The odds are a model line, labelled as such, and positions use practice SOL stored in the browser.
+
+**Why.** Reading public chain state needs no keys and no backend, and a browser connection is as fast as the data gets. Taking real stakes would make MAYBE a market operator: that needs an audited on-chain market program, a license, and a resolution source people can rely on. None of those exist yet, so real money is off, and the page says so.
+
+## D14 · The public board is published on GitHub Pages, not through a hosting account's Git integration
+
+**Choice.** `scripts/deploy-pages.sh` builds the board in public mode (`odds.html` only: no simulation, no wallet, a Content-Security-Policy) and force-pushes it as a single commit to the `gh-pages` branch, which GitHub Pages serves.
+
+**Why.** The repository is public. A hosting provider's Git integration posts deployment links back onto every commit, and those links carry the hosting account's own team name. Publishing from the repository itself keeps the public footprint to the repository and its Pages URL. The build is static, so moving it to another host later is a copy.

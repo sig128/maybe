@@ -14,10 +14,10 @@ import { ROW_H, ROW_H_COMPACT, TokenRow } from "./TokenRow.tsx";
 import { openHow, openPositions, useOddsUi } from "./uiStore.ts";
 import "./odds.css";
 
-const COLUMNS: Array<{ stage: Stage; title: string; hint: string }> = [
-  { stage: "new", title: "Just launched", hint: "On the bonding curve" },
-  { stage: "stretch", title: "Final stretch", hint: "Curve over 55% full" },
-  { stage: "graduated", title: "Graduated", hint: "Trading on PumpSwap" },
+const COLUMNS: Array<{ stage: Stage; title: string; tab: string; hint: string }> = [
+  { stage: "new", title: "Just launched", tab: "New", hint: "On the bonding curve" },
+  { stage: "stretch", title: "Final stretch", tab: "Stretch", hint: "Curve over 55% full" },
+  { stage: "graduated", title: "Graduated", tab: "Graduated", hint: "Trading on PumpSwap" },
 ];
 
 const STAKES = [0.05, 0.1, 0.5, 1];
@@ -110,7 +110,7 @@ function TabCount({ stage }: { stage: Stage }) {
   return <span className="otab-count mono">{n}</span>;
 }
 
-function Column({ stage, title, hint, stake, query, rowH, onOpen, onVisible, paused }: { stage: Stage; title: string; hint: string; stake: number; query: string; rowH: number; onOpen: (m: string) => void; onVisible: (stage: Stage, mints: string[]) => void; paused: boolean }) {
+function Column({ stage, title, hint, stake, query, rowH, onOpen, onVisible, paused }: { stage: Stage; title: string; tab: string; hint: string; stake: number; query: string; rowH: number; onOpen: (m: string) => void; onVisible: (stage: Stage, mints: string[]) => void; paused: boolean }) {
   const live = useColumn(stage);
   const [frozen, setFrozen] = useState<string[] | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -347,7 +347,10 @@ export default function Odds() {
         <div className="segmented otabs" role="tablist" aria-label="Board">
           {COLUMNS.map((c) => (
             <button key={c.stage} role="tab" aria-selected={tab === c.stage} onClick={() => setTab(c.stage)}>
-              {c.title} <TabCount stage={c.stage} />
+              {/* the short name shows on phones; whichever is visible is also what screen readers hear */}
+              <span className="otab-long">{c.title}</span>
+              <span className="otab-short">{c.tab}</span>
+              <TabCount stage={c.stage} />
             </button>
           ))}
         </div>
