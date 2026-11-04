@@ -703,195 +703,34 @@ pub mod maybe_vault {
             require!(s.vault == ctx.accounts.vault.key(), MaybeError::InvalidAccount);
             require!(s.plan_hash == expected_plan_hash, MaybeError::PlanHashMismatch);
             require!(s.status != eng::STATUS_UPLOADING, MaybeError::NotActive);
-            (s.plan_bytes(), s.runtime(), ctx.accounts.strategy.key())
+            (s.plan_bytes(), Box::new(s.runtime()), ctx.accounts.strategy.key())
         };
         let plan = PlanView::parse(&bytes).map_err(plan_err)?;
         require!(i < plan.n_actions(), MaybeError::BadPlan);
         let rem = ctx.remaining_accounts;
-        let (events, ext, next) = load_context(&plan, rem)?;
-        let times = {
-            let env = Env { now, plan: &plan, rt: &rt, events, ext };
-            pr::evaluate_nodes(&plan, &env)
-        };
-        let prep = eng::prepare(&plan, &rt, i, &times, now, paused, Some(run)).map_err(eng_err)?;
+        let (times, next) = compute_times(&plan, &rt, rem, now)?;
+        let prep = eng::prepare(&plan, &rt, i, &times[..], now, paused, Some(run)).map_err(eng_err)?;
         let a = plan.action(i);
-        let in_mint = Pubkey::new_from_array(plan.mint(a.in_mint as usize));
-        let out_mint = if a.kind == pl::KIND_SWAP { Pubkey::new_from_array(plan.mint(a.out_mint as usize)) } else { Pubkey::default() };
-        let acc = &rem[next..];
-        let (owner, vault_id, bump, in_entry, out_entry) = {
-            let v = ctx.accounts.vault.load()?;
-            let ie = v.entry(&in_mint).ok_or(MaybeError::MintNotRegistered)?;
-            let oe = if a.kind == pl::KIND_SWAP { Some(v.entry(&out_mint).ok_or(MaybeError::MintNotRegistered)?) } else { None };
-            (v.owner, v.vault_id, v.bump, (ie, v.balances[ie].token_account), oe.map(|o| (o, v.balances[o].token_account)))
+        let x = exec_context(&ctx.accounts.config, &ctx.accounts.vault, &plan, &a)?;
+        let (effects, recipient) = match a.kind {
+            pl::KIND_SWAP => (exec_swap(&ctx.accounts.config, &plan, &a, &prep, &rem[next..], &x)?, Pubkey::default()),
+            pl::KIND_TRANSFER => exec_transfer(&plan, &a, &prep, &rem[next..], &x)?,
+            _ => (eng::settle_direct(&plan, &prep), Pubkey::default()),
         };
-        let (in_asset_tp, in_decimals, in_treasury) = {
-            let c = ctx.accounts.config.load()?;
-            let asset = c.asset(&in_mint).ok_or(MaybeError::AssetNotEnabled)?;
-            (asset.token_program, asset.decimals, asset.treasury)
-        };
-        let vault_info = ctx.accounts.vault.to_account_info();
-        let vault_key = vault_info.key();
-        let (p, id, b, o) = vault_seeds_owned(&owner, vault_id, bump);
-        let seeds: &[&[u8]] = &[p.as_slice(), o.as_ref(), id.as_ref(), b.as_ref()];
-        let mut recipient = Pubkey::default();
-
-        let effects = match a.kind {
-            pl::KIND_SWAP => {
-                let (route_program, slice_len) = match a.route_kind {
-                    pl::ROUTE_CP_SWAP => (acc.first(), 11usize),
-                    pl::ROUTE_OUTCOME_BUY => (acc.first(), 9usize),
-                    _ => (acc.first(), 10usize),
-                };
-                require!(acc.len() >= slice_len, MaybeError::InvalidAccount);
-                let route_program = route_program.ok_or(MaybeError::InvalidAccount)?;
-                {
-                    let c = ctx.accounts.config.load()?;
-                    let route = c.route(a.route_kind).ok_or(MaybeError::RouteNotEnabled)?;
-                    require!(route.enabled == 1 && route.program_id == route_program.key(), MaybeError::RouteNotEnabled);
-                    let out_asset = c.asset(&out_mint).ok_or(MaybeError::AssetNotEnabled)?;
-                    let _ = out_asset;
-                }
-                let pool = &acc[1];
-                require!(pool.key.to_bytes() == plan.r#ref(a.r#ref as usize), MaybeError::RouteAccountMismatch);
-                require!(*pool.owner == route_program.key(), MaybeError::RouteAccountMismatch);
-                // positions of vault src/dst and the venue-facing slice (venue order, without user accounts)
-                let (venue_accounts, src, dst, treasury): (&[AccountInfo<'info>], &AccountInfo<'info>, &AccountInfo<'info>, &AccountInfo<'info>) = match a.route_kind {
-                    // [program, pool, mint_a, mint_b, pool_vault_a, pool_vault_b, token_program_a, token_program_b, src, dst, treasury]
-                    pl::ROUTE_CP_SWAP => (&acc[1..8], &acc[8], &acc[9], &acc[10]),
-                    // [program, market, collateral_mint, yes_mint, market_vault, token_program, src, dst, treasury]
-                    pl::ROUTE_OUTCOME_BUY => (&acc[1..6], &acc[6], &acc[7], &acc[8]),
-                    // [program, market, event, collateral_mint, yes_mint, market_vault, token_program, src, dst, treasury]
-                    _ => (&acc[1..7], &acc[7], &acc[8], &acc[9]),
-                };
-                require!(src.key() == in_entry.1, MaybeError::TokenAccountMismatch);
-                require!(dst.key() == out_entry.ok_or(MaybeError::MintNotRegistered)?.1, MaybeError::TokenAccountMismatch);
-                require!(treasury.key() == in_treasury, MaybeError::TokenAccountMismatch);
-                // mints used by the venue must be exactly this pair
-                let pair_ok = match a.route_kind {
-                    pl::ROUTE_CP_SWAP => {
-                        let (ma, mb) = (venue_accounts[1].key(), venue_accounts[2].key());
-                        (ma == in_mint && mb == out_mint) || (ma == out_mint && mb == in_mint)
-                    }
-                    pl::ROUTE_OUTCOME_BUY => venue_accounts[1].key() == in_mint && venue_accounts[2].key() == out_mint,
-                    _ => venue_accounts[2].key() == out_mint && venue_accounts[3].key() == in_mint,
-                };
-                require!(pair_ok, MaybeError::RouteAccountMismatch);
-                // no vault-owned token account may appear anywhere in the route slice except src/dst
-                for x in venue_accounts.iter() {
-                    if is_token_program(x.owner) && x.data_len() >= tk::ACCOUNT_BASE_LEN {
-                        let data = x.try_borrow_data()?;
-                        if let Ok(t) = tk::parse_token_account(&data) {
-                            require!(t.owner != vault_key.to_bytes(), MaybeError::ForeignVaultAccountInRoute);
-                        }
-                    }
-                }
-                let src_before = token_amount(src)?;
-                let dst_before = token_amount(dst)?;
-                let min_out = u64::try_from(prep.min_out).unwrap_or(u64::MAX);
-                let (name, user_pos): (&[u8], usize) = match a.route_kind {
-                    pl::ROUTE_CP_SWAP => (b"global:swap", 5),
-                    pl::ROUTE_OUTCOME_BUY => (b"global:buy_yes", 4),
-                    _ => (b"global:redeem", 5),
-                };
-                let disc = solana_sha256_hasher::hash(name).to_bytes();
-                let mut data = Vec::with_capacity(24);
-                data.extend_from_slice(&disc[..8]);
-                data.extend_from_slice(&prep.amount_in.to_le_bytes());
-                data.extend_from_slice(&min_out.to_le_bytes());
-                // venue order: venue_accounts[..user_pos] ++ [user_src, user_dst, user_authority] ++ venue_accounts[user_pos..]
-                let mut metas = Vec::with_capacity(venue_accounts.len() + 3);
-                let mut infos = Vec::with_capacity(venue_accounts.len() + 4);
-                let push = |metas: &mut Vec<AccountMeta>, infos: &mut Vec<AccountInfo<'info>>, x: &AccountInfo<'info>| {
-                    metas.push(if x.is_writable { AccountMeta::new(*x.key, false) } else { AccountMeta::new_readonly(*x.key, false) });
-                    infos.push(x.clone());
-                };
-                for x in &venue_accounts[..user_pos] {
-                    push(&mut metas, &mut infos, x);
-                }
-                metas.push(AccountMeta::new(src.key(), false));
-                infos.push(src.clone());
-                metas.push(AccountMeta::new(dst.key(), false));
-                infos.push(dst.clone());
-                metas.push(AccountMeta::new_readonly(vault_key, true));
-                infos.push(vault_info.clone());
-                for x in &venue_accounts[user_pos..] {
-                    push(&mut metas, &mut infos, x);
-                }
-                infos.push(route_program.clone());
-                let ix = Instruction { program_id: route_program.key(), accounts: metas, data };
-                invoke_signed(&ix, &infos, &[seeds])?;
-                let src_after = token_amount(src)?;
-                let dst_after = token_amount(dst)?;
-                let spent_in = src_before.checked_sub(src_after).ok_or(MaybeError::RouteDeltaViolation)?;
-                let received_out = dst_after.checked_sub(dst_before).ok_or(MaybeError::RouteDeltaViolation)?;
-                let eff = eng::settle_swap(&plan, &prep, spent_in, received_out).map_err(eng_err)?;
-                if eff.fee > 0 {
-                    let mint_info = match a.route_kind {
-                        pl::ROUTE_CP_SWAP => {
-                            if venue_accounts[1].key() == in_mint {
-                                &venue_accounts[1]
-                            } else {
-                                &venue_accounts[2]
-                            }
-                        }
-                        pl::ROUTE_OUTCOME_BUY => &venue_accounts[1],
-                        _ => &venue_accounts[3],
-                    };
-                    let tp = venue_accounts.iter().find(|x| x.key() == in_asset_tp).ok_or(MaybeError::InvalidAccount)?;
-                    transfer_checked(tp, src, mint_info, treasury, &vault_info, eff.fee, in_decimals, Some(seeds))?;
-                }
-                eff
-            }
-            pl::KIND_TRANSFER => {
-                // [src, mint, recipient_token_account, token_program, treasury]
-                require!(acc.len() >= 5, MaybeError::InvalidAccount);
-                let (src, mint, dest, tp, treasury) = (&acc[0], &acc[1], &acc[2], &acc[3], &acc[4]);
-                require!(src.key() == in_entry.1 && mint.key() == in_mint, MaybeError::TokenAccountMismatch);
-                require!(tp.key() == in_asset_tp, MaybeError::InvalidAccount);
-                recipient = Pubkey::new_from_array(plan.r#ref(a.r#ref as usize));
-                let d = token_info(dest)?;
-                require!(d.mint == in_mint.to_bytes() && d.owner == recipient.to_bytes(), MaybeError::TokenAccountMismatch);
-                let eff = eng::settle_direct(&plan, &prep);
-                transfer_checked(tp, src, mint, dest, &vault_info, eff.amount_in, in_decimals, Some(seeds))?;
-                if eff.fee > 0 {
-                    require!(treasury.key() == in_treasury, MaybeError::TokenAccountMismatch);
-                    transfer_checked(tp, src, mint, treasury, &vault_info, eff.fee, in_decimals, Some(seeds))?;
-                }
-                eff
-            }
-            _ => eng::settle_direct(&plan, &prep),
-        };
-
         eng::apply(&plan, &mut rt, &effects, now).map_err(eng_err)?;
         {
             let mut v = ctx.accounts.vault.load_mut()?;
-            let ie = in_entry.0;
+            let ie = x.in_entry;
             v.balances[ie].reserved = v.balances[ie].reserved.checked_sub(effects.taken).ok_or(MaybeError::InsufficientAllocation)?;
             if a.kind == pl::KIND_RELEASE {
                 v.balances[ie].available = v.balances[ie].available.checked_add(effects.taken).ok_or(MaybeError::Overflow)?;
             }
-            if let (pl::KIND_SWAP, Some((oe, _))) = (a.kind, out_entry) {
+            if let (pl::KIND_SWAP, Some(oe)) = (a.kind, x.out_entry) {
                 v.balances[oe].reserved = v.balances[oe].reserved.checked_add(effects.amount_out).ok_or(MaybeError::Overflow)?;
             }
         }
         ctx.accounts.strategy.load_mut()?.store(&rt);
-        emit!(ExecutionReceipt {
-            strategy: strategy_key,
-            plan_hash: expected_plan_hash,
-            action,
-            run: effects.run,
-            skipped_runs: effects.skipped_runs,
-            exec_nonce: rt.exec_nonce,
-            at: now,
-            kind: a.kind,
-            in_mint,
-            out_mint,
-            amount: effects.taken,
-            fee: effects.fee,
-            amount_in: effects.amount_in,
-            amount_out: effects.amount_out,
-            recipient,
-        });
+        emit_receipt(strategy_key, expected_plan_hash, action, &effects, rt.exec_nonce, now, a.kind, x.in_mint, x.out_mint, recipient);
         Ok(())
     }
 
@@ -969,6 +808,206 @@ pub mod maybe_vault {
     }
 }
 
+/// Everything an execution needs about the vault / assets, resolved once.
+struct ExecCtx<'info> {
+    vault_info: AccountInfo<'info>,
+    owner: Pubkey,
+    vault_id: [u8; 8],
+    bump: [u8; 1],
+    in_mint: Pubkey,
+    out_mint: Pubkey,
+    in_entry: usize,
+    in_token: Pubkey,
+    out_entry: Option<usize>,
+    out_token: Pubkey,
+    in_tp: Pubkey,
+    in_decimals: u8,
+    in_treasury: Pubkey,
+}
+
+impl ExecCtx<'_> {
+    fn with_seeds<R>(&self, f: impl FnOnce(&[&[u8]]) -> R) -> R {
+        let seeds: &[&[u8]] = &[b"vault", self.owner.as_ref(), self.vault_id.as_ref(), self.bump.as_ref()];
+        f(seeds)
+    }
+}
+
+#[inline(never)]
+fn exec_context<'info>(config: &AccountLoader<'info, Config>, vault: &AccountLoader<'info, Vault>, plan: &PlanView, a: &pl::ActionDef) -> Result<Box<ExecCtx<'info>>> {
+    let in_mint = Pubkey::new_from_array(plan.mint(a.in_mint as usize));
+    let out_mint = if a.kind == pl::KIND_SWAP { Pubkey::new_from_array(plan.mint(a.out_mint as usize)) } else { Pubkey::default() };
+    let v = vault.load()?;
+    let in_entry = v.entry(&in_mint).ok_or(MaybeError::MintNotRegistered)?;
+    let out_entry = if a.kind == pl::KIND_SWAP { Some(v.entry(&out_mint).ok_or(MaybeError::MintNotRegistered)?) } else { None };
+    let c = config.load()?;
+    let asset = c.asset(&in_mint).ok_or(MaybeError::AssetNotEnabled)?;
+    Ok(Box::new(ExecCtx {
+        vault_info: vault.to_account_info(),
+        owner: v.owner,
+        vault_id: v.vault_id.to_le_bytes(),
+        bump: [v.bump],
+        in_mint,
+        out_mint,
+        in_entry,
+        in_token: v.balances[in_entry].token_account,
+        out_entry,
+        out_token: out_entry.map(|o| v.balances[o].token_account).unwrap_or_default(),
+        in_tp: asset.token_program,
+        in_decimals: asset.decimals,
+        in_treasury: asset.treasury,
+    }))
+}
+
+#[inline(never)]
+fn compute_times<'info>(plan: &PlanView, rt: &eng::Runtime, rem: &'info [AccountInfo<'info>], now: i64) -> Result<(Box<[pr::Times; pl::MAX_NODES]>, usize)> {
+    let (events, ext, next) = load_context(plan, rem)?;
+    let env = Env { now, plan, rt, events, ext };
+    Ok((Box::new(pr::evaluate_nodes(plan, &env)), next))
+}
+
+/// SWAP through the configured route program with balance-delta enforcement.
+#[inline(never)]
+fn exec_swap<'info>(config: &AccountLoader<'info, Config>, plan: &PlanView, a: &pl::ActionDef, prep: &eng::Prepared, acc: &'info [AccountInfo<'info>], x: &ExecCtx<'info>) -> Result<eng::Effects> {
+    let slice_len = match a.route_kind {
+        pl::ROUTE_CP_SWAP => 11usize,
+        pl::ROUTE_OUTCOME_BUY => 9usize,
+        _ => 10usize,
+    };
+    require!(acc.len() >= slice_len, MaybeError::InvalidAccount);
+    let route_program = &acc[0];
+    {
+        let c = config.load()?;
+        let route = c.route(a.route_kind).ok_or(MaybeError::RouteNotEnabled)?;
+        require!(route.enabled == 1 && route.program_id == route_program.key(), MaybeError::RouteNotEnabled);
+        require!(c.asset(&x.out_mint).is_some(), MaybeError::AssetNotEnabled);
+    }
+    let pool = &acc[1];
+    require!(pool.key.to_bytes() == plan.r#ref(a.r#ref as usize), MaybeError::RouteAccountMismatch);
+    require!(*pool.owner == route_program.key(), MaybeError::RouteAccountMismatch);
+    // venue-facing slice (venue order, without the user accounts) and the vault's src/dst/treasury
+    let (venue_accounts, src, dst, treasury) = match a.route_kind {
+        // [program, pool, mint_a, mint_b, pool_vault_a, pool_vault_b, token_program_a, token_program_b, src, dst, treasury]
+        pl::ROUTE_CP_SWAP => (&acc[1..8], &acc[8], &acc[9], &acc[10]),
+        // [program, market, collateral_mint, yes_mint, market_vault, token_program, src, dst, treasury]
+        pl::ROUTE_OUTCOME_BUY => (&acc[1..6], &acc[6], &acc[7], &acc[8]),
+        // [program, market, event, collateral_mint, yes_mint, market_vault, token_program, src, dst, treasury]
+        _ => (&acc[1..7], &acc[7], &acc[8], &acc[9]),
+    };
+    require!(src.key() == x.in_token, MaybeError::TokenAccountMismatch);
+    require!(x.out_entry.is_some() && dst.key() == x.out_token, MaybeError::TokenAccountMismatch);
+    require!(treasury.key() == x.in_treasury, MaybeError::TokenAccountMismatch);
+    let pair_ok = match a.route_kind {
+        pl::ROUTE_CP_SWAP => {
+            let (ma, mb) = (venue_accounts[1].key(), venue_accounts[2].key());
+            (ma == x.in_mint && mb == x.out_mint) || (ma == x.out_mint && mb == x.in_mint)
+        }
+        pl::ROUTE_OUTCOME_BUY => venue_accounts[1].key() == x.in_mint && venue_accounts[2].key() == x.out_mint,
+        _ => venue_accounts[2].key() == x.out_mint && venue_accounts[3].key() == x.in_mint,
+    };
+    require!(pair_ok, MaybeError::RouteAccountMismatch);
+    // no vault-owned token account may appear anywhere in the route slice
+    let vault_key = x.vault_info.key();
+    for v in venue_accounts.iter() {
+        if is_token_program(v.owner) && v.data_len() >= tk::ACCOUNT_BASE_LEN {
+            let data = v.try_borrow_data()?;
+            if let Ok(t) = tk::parse_token_account(&data) {
+                require!(t.owner != vault_key.to_bytes(), MaybeError::ForeignVaultAccountInRoute);
+            }
+        }
+    }
+    let src_before = token_amount(src)?;
+    let dst_before = token_amount(dst)?;
+    let min_out = u64::try_from(prep.min_out).unwrap_or(u64::MAX);
+    let (name, user_pos): (&[u8], usize) = match a.route_kind {
+        pl::ROUTE_CP_SWAP => (b"global:swap", 5),
+        pl::ROUTE_OUTCOME_BUY => (b"global:buy_yes", 4),
+        _ => (b"global:redeem", 5),
+    };
+    let disc = solana_sha256_hasher::hash(name).to_bytes();
+    let mut data = Vec::with_capacity(24);
+    data.extend_from_slice(&disc[..8]);
+    data.extend_from_slice(&prep.amount_in.to_le_bytes());
+    data.extend_from_slice(&min_out.to_le_bytes());
+    let mut metas = Vec::with_capacity(venue_accounts.len() + 3);
+    let mut infos: Vec<AccountInfo<'info>> = Vec::with_capacity(venue_accounts.len() + 4);
+    for (k, v) in venue_accounts.iter().enumerate() {
+        if k == user_pos {
+            metas.push(AccountMeta::new(src.key(), false));
+            metas.push(AccountMeta::new(dst.key(), false));
+            metas.push(AccountMeta::new_readonly(vault_key, true));
+            infos.push(src.clone());
+            infos.push(dst.clone());
+            infos.push(x.vault_info.clone());
+        }
+        metas.push(if v.is_writable { AccountMeta::new(*v.key, false) } else { AccountMeta::new_readonly(*v.key, false) });
+        infos.push(v.clone());
+    }
+    infos.push(route_program.clone());
+    let ix = Instruction { program_id: route_program.key(), accounts: metas, data };
+    x.with_seeds(|seeds| invoke_signed(&ix, &infos, &[seeds]))?;
+    let spent_in = src_before.checked_sub(token_amount(src)?).ok_or(MaybeError::RouteDeltaViolation)?;
+    let received_out = token_amount(dst)?.checked_sub(dst_before).ok_or(MaybeError::RouteDeltaViolation)?;
+    let eff = eng::settle_swap(plan, prep, spent_in, received_out).map_err(eng_err)?;
+    if eff.fee > 0 {
+        let mint_info = match a.route_kind {
+            pl::ROUTE_CP_SWAP => {
+                if venue_accounts[1].key() == x.in_mint {
+                    &venue_accounts[1]
+                } else {
+                    &venue_accounts[2]
+                }
+            }
+            pl::ROUTE_OUTCOME_BUY => &venue_accounts[1],
+            _ => &venue_accounts[3],
+        };
+        let tp = venue_accounts.iter().find(|v| v.key() == x.in_tp).ok_or(MaybeError::InvalidAccount)?;
+        x.with_seeds(|seeds| transfer_checked(tp, src, mint_info, treasury, &x.vault_info, eff.fee, x.in_decimals, Some(seeds)))?;
+    }
+    Ok(eff)
+}
+
+/// TRANSFER to the plan's fixed recipient (any token account it owns for this mint).
+#[inline(never)]
+fn exec_transfer<'info>(plan: &PlanView, a: &pl::ActionDef, prep: &eng::Prepared, acc: &'info [AccountInfo<'info>], x: &ExecCtx<'info>) -> Result<(eng::Effects, Pubkey)> {
+    // [src, mint, recipient_token_account, token_program, treasury]
+    require!(acc.len() >= 5, MaybeError::InvalidAccount);
+    let (src, mint, dest, tp, treasury) = (&acc[0], &acc[1], &acc[2], &acc[3], &acc[4]);
+    require!(src.key() == x.in_token && mint.key() == x.in_mint, MaybeError::TokenAccountMismatch);
+    require!(tp.key() == x.in_tp, MaybeError::InvalidAccount);
+    let recipient = Pubkey::new_from_array(plan.r#ref(a.r#ref as usize));
+    let d = token_info(dest)?;
+    require!(d.mint == x.in_mint.to_bytes() && d.owner == recipient.to_bytes(), MaybeError::TokenAccountMismatch);
+    let eff = eng::settle_direct(plan, prep);
+    x.with_seeds(|seeds| transfer_checked(tp, src, mint, dest, &x.vault_info, eff.amount_in, x.in_decimals, Some(seeds)))?;
+    if eff.fee > 0 {
+        require!(treasury.key() == x.in_treasury, MaybeError::TokenAccountMismatch);
+        x.with_seeds(|seeds| transfer_checked(tp, src, mint, treasury, &x.vault_info, eff.fee, x.in_decimals, Some(seeds)))?;
+    }
+    Ok((eff, recipient))
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline(never)]
+fn emit_receipt(strategy: Pubkey, plan_hash: [u8; 32], action: u8, e: &eng::Effects, exec_nonce: u64, at: i64, kind: u8, in_mint: Pubkey, out_mint: Pubkey, recipient: Pubkey) {
+    emit!(ExecutionReceipt {
+        strategy,
+        plan_hash,
+        action,
+        run: e.run,
+        skipped_runs: e.skipped_runs,
+        exec_nonce,
+        at,
+        kind,
+        in_mint,
+        out_mint,
+        amount: e.taken,
+        fee: e.fee,
+        amount_in: e.amount_in,
+        amount_out: e.amount_out,
+        recipient,
+    });
+}
+
 fn close_impl<'info>(vault: &AccountLoader<'info, Vault>, strategy: &AccountLoader<'info, Strategy>, mode: u8, signer: Option<Pubkey>, rem: &'info [AccountInfo<'info>]) -> Result<()> {
     let now = now()?;
     let (bytes, mut rt, owner) = {
@@ -977,14 +1016,8 @@ fn close_impl<'info>(vault: &AccountLoader<'info, Vault>, strategy: &AccountLoad
         (s.plan_bytes(), s.runtime(), s.owner)
     };
     let plan = PlanView::parse(&bytes).map_err(plan_err)?;
-    let times = if mode == eng::CLOSE_COMPLETE {
-        let (events, ext, _) = load_context(&plan, rem)?;
-        let env = Env { now, plan: &plan, rt: &rt, events, ext };
-        pr::evaluate_nodes(&plan, &env)
-    } else {
-        [pr::PENDING_TIMES; pl::MAX_NODES]
-    };
-    let refunds = eng::close(&plan, &mut rt, mode, now, signer == Some(owner), &times).map_err(eng_err)?;
+    let times = if mode == eng::CLOSE_COMPLETE { compute_times(&plan, &rt, rem, now)?.0 } else { Box::new([pr::PENDING_TIMES; pl::MAX_NODES]) };
+    let refunds = eng::close(&plan, &mut rt, mode, now, signer == Some(owner), &times[..]).map_err(eng_err)?;
     {
         let mut v = vault.load_mut()?;
         for (i, amt) in refunds.iter().enumerate().take(plan.n_mints()) {

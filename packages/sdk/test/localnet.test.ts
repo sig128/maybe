@@ -189,6 +189,16 @@ describe.skipIf(!ready)("maybe_vault on a local validator", () => {
   function reconcile(v: VaultState, strategies: StrategyState[]) {
     expect(checkVaultInvariants(v, holdingsByMint(strategies))).toEqual([]);
   }
+  /** every strategy activated in a vault, so reconciliation covers all reservations */
+  const byVault = new Map<string, PublicKey[]>();
+  async function allStrategies(vault: PublicKey): Promise<StrategyState[]> {
+    const out: StrategyState[] = [];
+    for (const k of byVault.get(vault.toBase58()) ?? []) {
+      const s = toStrategyState(k, await client.strategy(k));
+      if (s) out.push(s);
+    }
+    return out;
+  }
 
   /** Predict with the core engine, execute on-chain, require identical results. */
   async function executeExpect(strategy: PublicKey, vault: PublicKey, action: number, run: number, opts: { override?: (m: AccountMeta[]) => AccountMeta[]; planHash?: Uint8Array; expectError?: string } = {}) {
@@ -225,14 +235,16 @@ describe.skipIf(!ready)("maybe_vault on a local validator", () => {
     const after = await snapshot(strategy, vault);
     expect(after.s).toEqual(pred.strategy);
     expect(after.v).toEqual(pred.vault);
-    reconcile(after.v, [after.s]);
+    reconcile(after.v, await allStrategies(vault));
     return { r, receipt, before, after };
   }
 
   async function activate(u: User, doc: Strategy, id: bigint, creator: Keypair = u.user, policy?: PublicKey) {
     const c = compileStrategy(doc);
     const out = await client.uploadAndActivate(creator, u.vault, id, doc.version, c.bytes, policy);
-    return { ...out, compiled: c, last: out.results[out.results.length - 1]! };
+    const last = out.results[out.results.length - 1]!;
+    if (last.ok) byVault.set(u.vault.toBase58(), [...(byVault.get(u.vault.toBase58()) ?? []), out.strategy]);
+    return { ...out, compiled: c, last };
   }
 
   function withEvents(doc: Strategy, map: Record<string, string>): Strategy {
