@@ -42,10 +42,22 @@ const GHOSTS = [
   { angle: 74, start: 5.3, gap: 3.8, dots: 2, lag: 52 },
   { angle: -81, start: 4.3, gap: 4.2, dots: 2, lag: 15 },
 ];
-type Ray = { angle: number; dist: number[]; maybe: boolean; rank: number; lag: number };
+type Ray = {
+  angle: number;
+  dist: number[];
+  maybe: boolean;
+  rank: number;
+  lag: number;
+};
 const RAYS: Ray[] = [
   { angle: MAYBE_ANGLE, dist: DOT_AT, maybe: true, rank: 3, lag: 18 },
-  ...GHOSTS.map((g, i) => ({ angle: g.angle, dist: Array.from({ length: g.dots }, (_, k) => g.start + k * g.gap), maybe: false, rank: i < 3 ? i : i + 1, lag: g.lag })),
+  ...GHOSTS.map((g, i) => ({
+    angle: g.angle,
+    dist: Array.from({ length: g.dots }, (_, k) => g.start + k * g.gap),
+    maybe: false,
+    rank: i < 3 ? i : i + 1,
+    lag: g.lag,
+  })),
 ];
 
 const at = (angle: number, d: number) => {
@@ -121,109 +133,203 @@ export function Intro({ onExit, onDone }: { onExit: () => void; onDone: () => vo
       // the intro may play again next visit
     }
     const running: Animation[] = [];
-    const play = (el: Element | null | undefined, frames: Keyframe[], o: KeyframeAnimationOptions) => {
-      if (!el) return;
-      running.push(el.animate(frames, { fill: "both", easing: EASE_OUT, ...o }));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // a tab opened in the background waits until someone looks at it
+    const begin = () => {
+      if (document.visibilityState !== "visible") return;
+      document.removeEventListener("visibilitychange", begin);
+      choreograph();
     };
-    const svg = mark.current!;
-    const q = (sel: string) => [...svg.querySelectorAll(sel)];
+    const choreograph = () => {
+      const play = (el: Element | null | undefined, frames: Keyframe[], o: KeyframeAnimationOptions) => {
+        if (!el) return;
+        running.push(el.animate(frames, { fill: "both", easing: EASE_OUT, ...o }));
+      };
+      const svg = mark.current!;
+      const q = (sel: string) => [...svg.querySelectorAll(sel)];
 
-    // 1. the stem rises from the ground to the fork
-    play(svg.querySelector(".ointro-stem"), [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { delay: T.stem, duration: 420 });
+      // 1. the stem rises from the ground to the fork
+      play(svg.querySelector(".ointro-stem"), [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { delay: T.stem, duration: 420 });
 
-    // 2. at the fork, possible futures open outward, dot by dot; the one that will stay looks like the rest
-    const rays = q(".ointro-ray").sort((a, b) => Number((a as SVGElement).dataset.rank) - Number((b as SVGElement).dataset.rank));
-    rays.forEach((ray, i) => {
-      [...ray.querySelectorAll("circle")].forEach((c, k) => {
-        const peak = 0.78 - k * 0.12;
-        play(c, [
-          { opacity: 0, transform: "scale(0.2)" },
-          { opacity: peak, transform: "scale(1.2)", offset: 0.4 },
-          { opacity: peak * 0.62, transform: "scale(1)" },
-        ], { delay: T.fan + i * 24 + Number((ray as SVGElement).dataset.lag) + k * 86, duration: 440 });
+      // 2. at the fork, possible futures open outward, dot by dot; the one that will stay looks like the rest
+      const rays = q(".ointro-ray").sort((a, b) => Number((a as SVGElement).dataset.rank) - Number((b as SVGElement).dataset.rank));
+      rays.forEach((ray, i) => {
+        [...ray.querySelectorAll("circle")].forEach((c, k) => {
+          const peak = 0.78 - k * 0.12;
+          play(
+            c,
+            [
+              { opacity: 0, transform: "scale(0.2)" },
+              { opacity: peak, transform: "scale(1.2)", offset: 0.4 },
+              { opacity: peak * 0.62, transform: "scale(1)" },
+            ],
+            {
+              delay: T.fan + i * 24 + Number((ray as SVGElement).dataset.lag) + k * 86,
+              duration: 440,
+            },
+          );
+        });
       });
-    });
 
-    // 3. every other future falls back into the fork; the one that stays sharpens into the mark
-    q(".ointro-ray.is-ghost").forEach((ray, i) => {
-      play(ray, [{ opacity: 1, transform: "scale(1)" }, { opacity: 0, transform: "scale(0.18)" }], {
-        delay: T.collapse + (i % 4) * 22,
-        duration: 480,
-        easing: EASE_IN_OUT,
-        fill: "forwards",
+      // 3. every other future falls back into the fork; the one that stays sharpens into the mark
+      q(".ointro-ray.is-ghost").forEach((ray, i) => {
+        play(
+          ray,
+          [
+            { opacity: 1, transform: "scale(1)" },
+            { opacity: 0, transform: "scale(0.18)" },
+          ],
+          {
+            delay: T.collapse + (i % 4) * 22,
+            duration: 480,
+            easing: EASE_IN_OUT,
+            fill: "forwards",
+          },
+        );
       });
-    });
-    q(".ointro-ray.is-maybe circle").forEach((c, k) =>
-      play(c, [{ opacity: (0.78 - k * 0.12) * 0.62, transform: "scale(0.82)", fill: "var(--c-text-2)" }, { opacity: 1, transform: "scale(1)", fill: "var(--c-text)" }], {
-        delay: T.collapse + 160 + k * 60,
-        duration: 420,
-        fill: "forwards",
-      }),
-    );
+      q(".ointro-ray.is-maybe circle").forEach((c, k) =>
+        play(
+          c,
+          [
+            {
+              opacity: (0.78 - k * 0.12) * 0.62,
+              transform: "scale(0.82)",
+              fill: "var(--c-text-2)",
+            },
+            { opacity: 1, transform: "scale(1)", fill: "var(--c-text)" },
+          ],
+          {
+            delay: T.collapse + 160 + k * 60,
+            duration: 420,
+            fill: "forwards",
+          },
+        ),
+      );
 
-    // 4. the committed branch draws, and the dot lands like a confirmed block
-    play(svg.querySelector(".ointro-commit"), [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { delay: T.commit, duration: 380 });
-    play(svg.querySelector(".ointro-dot"), [
-      { transform: "scale(0)", opacity: 0 },
-      { transform: "scale(1.35)", opacity: 1, offset: 0.55 },
-      { transform: "scale(1)", opacity: 1 },
-    ], { delay: T.land, duration: 420 });
-    play(svg.querySelector(".ointro-ring"), [
-      { transform: "scale(1)", opacity: 0.9, strokeWidth: 0.9 },
-      { transform: "scale(3.4)", opacity: 0, strokeWidth: 0.2 },
-    ], { delay: T.land + 60, duration: 900, easing: "cubic-bezier(0.1, 0.7, 0.3, 1)", fill: "forwards" });
-    play(glow.current, [
-      { opacity: 0, transform: "translate(-50%, -50%) scale(0.6)" },
-      { opacity: 1, transform: "translate(-50%, -50%) scale(1)", offset: 0.35 },
-      { opacity: 0.55, transform: "translate(-50%, -50%) scale(1.08)" },
-    ], { delay: T.land, duration: 1300 });
+      // 4. the committed branch draws, and the dot lands like a confirmed block
+      play(svg.querySelector(".ointro-commit"), [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { delay: T.commit, duration: 380 });
+      play(
+        svg.querySelector(".ointro-dot"),
+        [
+          { transform: "scale(0)", opacity: 0 },
+          { transform: "scale(1.35)", opacity: 1, offset: 0.55 },
+          { transform: "scale(1)", opacity: 1 },
+        ],
+        { delay: T.land, duration: 420 },
+      );
+      play(
+        svg.querySelector(".ointro-ring"),
+        [
+          { transform: "scale(1)", opacity: 0.9, strokeWidth: 0.9 },
+          { transform: "scale(3.4)", opacity: 0, strokeWidth: 0.2 },
+        ],
+        {
+          delay: T.land + 60,
+          duration: 900,
+          easing: "cubic-bezier(0.1, 0.7, 0.3, 1)",
+          fill: "forwards",
+        },
+      );
+      play(
+        glow.current,
+        [
+          { opacity: 0, transform: "translate(-50%, -50%) scale(0.6)" },
+          {
+            opacity: 1,
+            transform: "translate(-50%, -50%) scale(1)",
+            offset: 0.35,
+          },
+          { opacity: 0.55, transform: "translate(-50%, -50%) scale(1.08)" },
+        ],
+        { delay: T.land, duration: 1300 },
+      );
 
-    // 5. the name, then the chain it's reading
-    const name = lockup.current!.querySelector(".wordmark");
-    play(name, [{ clipPath: "inset(-30% 100% -30% 0)", transform: "translateX(-6px)" }, { clipPath: "inset(-30% 0% -30% 0)", transform: "translateX(0)" }], { delay: T.word, duration: 520 });
-    play(status.current, [{ opacity: 0, transform: "translate(-50%, 4px)" }, { opacity: 1, transform: "translate(-50%, 0)" }], { delay: T.status, duration: 420 });
+      // 5. the name, then the chain it's reading
+      const name = lockup.current!.querySelector(".wordmark");
+      play(
+        name,
+        [
+          {
+            clipPath: "inset(-30% 100% -30% 0)",
+            transform: "translateX(-6px)",
+          },
+          { clipPath: "inset(-30% 0% -30% 0)", transform: "translateX(0)" },
+        ],
+        { delay: T.word, duration: 520 },
+      );
+      play(
+        status.current,
+        [
+          { opacity: 0, transform: "translate(-50%, 4px)" },
+          { opacity: 1, transform: "translate(-50%, 0)" },
+        ],
+        { delay: T.status, duration: 420 },
+      );
 
-    // 6. hand over: the logo flies into the header and lands on its own copy there
-    let leaving = false;
-    const exit = (fast: boolean) => {
-      if (leaving) return;
-      leaving = true;
-      for (const a of running) a.finish();
-      callbacks.current.onExit();
-      const el = lockup.current!;
-      const header = document.querySelector<HTMLElement>("[data-site-logo]");
-      const target = header?.querySelector("svg")?.getBoundingClientRect();
-      const own = svg.getBoundingClientRect();
-      const start = el.dataset.start ?? "";
-      let end = start.replace(/scale\([^)]*\)/, "scale(1)");
-      if (target && own.width) {
-        // where the mark sits inside the lockup at its natural size
-        const box = el.getBoundingClientRect();
-        const scale = box.width / el.offsetWidth;
-        const offX = (own.left - box.left) / scale;
-        const offY = (own.top - box.top) / scale;
-        end = `translate(${target.left - offX}px, ${target.top - offY}px) scale(1)`;
-      }
-      const headerWord = header?.querySelector(".wordmark");
-      const wordHidden = !headerWord || getComputedStyle(headerWord).display === "none";
-      const fly = el.animate([{ transform: start }, { transform: end }], { duration: fast ? 460 : 720, easing: EASE_IN_OUT, fill: "forwards" });
-      if (wordHidden) name?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 260, fill: "forwards" });
-      status.current?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, fill: "forwards" });
-      glow.current?.animate([{ opacity: 0.55 }, { opacity: 0 }], { duration: 360, fill: "forwards" });
-      backdrop.current?.animate([{ opacity: 1 }, { opacity: 0 }], { delay: fast ? 60 : 170, duration: fast ? 380 : 540, easing: "ease-out", fill: "forwards" });
-      const done = () => callbacks.current.onDone();
-      void fly.finished.then(done, done);
+      // 6. hand over: the logo flies into the header and lands on its own copy there
+      let leaving = false;
+      const exit = (fast: boolean) => {
+        if (leaving) return;
+        leaving = true;
+        for (const a of running) a.finish();
+        callbacks.current.onExit();
+        const el = lockup.current!;
+        const header = document.querySelector<HTMLElement>("[data-site-logo]");
+        const target = header?.querySelector("svg")?.getBoundingClientRect();
+        const own = svg.getBoundingClientRect();
+        const start = el.dataset.start ?? "";
+        let end = start.replace(/scale\([^)]*\)/, "scale(1)");
+        if (target && own.width) {
+          // where the mark sits inside the lockup at its natural size
+          const box = el.getBoundingClientRect();
+          const scale = box.width / el.offsetWidth;
+          const offX = (own.left - box.left) / scale;
+          const offY = (own.top - box.top) / scale;
+          end = `translate(${target.left - offX}px, ${target.top - offY}px) scale(1)`;
+        }
+        const headerWord = header?.querySelector(".wordmark");
+        const wordHidden = !headerWord || getComputedStyle(headerWord).display === "none";
+        const fly = el.animate([{ transform: start }, { transform: end }], {
+          duration: fast ? 460 : 720,
+          easing: EASE_IN_OUT,
+          fill: "forwards",
+        });
+        if (wordHidden)
+          name?.animate([{ opacity: 1 }, { opacity: 0 }], {
+            duration: 260,
+            fill: "forwards",
+          });
+        status.current?.animate([{ opacity: 1 }, { opacity: 0 }], {
+          duration: 200,
+          fill: "forwards",
+        });
+        glow.current?.animate([{ opacity: 0.55 }, { opacity: 0 }], {
+          duration: 360,
+          fill: "forwards",
+        });
+        backdrop.current?.animate([{ opacity: 1 }, { opacity: 0 }], {
+          delay: fast ? 60 : 170,
+          duration: fast ? 380 : 540,
+          easing: "ease-out",
+          fill: "forwards",
+        });
+        const done = () => callbacks.current.onDone();
+        void fly.finished.then(done, done);
+      };
+      exitRef.current = exit;
+      timer = setTimeout(() => exit(false), T.exit);
     };
-    exitRef.current = exit;
-    const timer = setTimeout(() => exit(false), T.exit);
     const skip = (e: KeyboardEvent) => {
       if (e.key === "Tab" || e.metaKey || e.ctrlKey) return;
-      exit(true);
+      exitRef.current(true);
     };
     window.addEventListener("keydown", skip);
+    document.addEventListener("visibilitychange", begin);
+    begin();
     return () => {
       clearTimeout(timer);
       window.removeEventListener("keydown", skip);
+      document.removeEventListener("visibilitychange", begin);
       for (const a of running) a.cancel();
     };
   }, []);
