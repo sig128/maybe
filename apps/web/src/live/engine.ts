@@ -464,50 +464,61 @@ export class LiveEngine {
 
   // ───────────────────────────────────────── Jupiter: seed and enrich
 
-  private async seed(attempt = 0): Promise<void> {
+  /**
+   * Fill the board on load from Jupiter's lists: recent launches, and the most traded and trending
+   * tokens (busy curves near graduation, fresh graduates). Each list seeds the board as soon as it
+   * arrives, so a slow or rate-limited one holds nothing up; a failed one is tried again later.
+   */
+  private seed(): void {
+    void this.seedList("toptraded/5m", 100);
+    void this.seedList("recent", 50);
+    void this.seedList("toptrending/5m", 100);
+  }
+
+  private async seedList(kind: "recent" | "toptraded/5m" | "toptrending/5m", limit: number, attempt = 0): Promise<void> {
     try {
-      // either list alone still seeds the board; one that failed is tried again a little later
-      // busy curves near the top of these lists are the ones most likely to be in their final stretch
-      const lists = await Promise.allSettled([this.jup.list("recent"), this.jup.list("toptraded/5m", 100), this.jup.list("toptrending/5m", 100)]);
-      const [recent, traded, trending] = lists.map((r) => (r.status === "fulfilled" && Array.isArray(r.value) ? r.value : []));
-      if (lists.some((r) => r.status === "rejected") && attempt < 2 && this.started) {
-        setTimeout(() => void this.seed(attempt + 1), 12_000);
-      }
-      const seen = new Set<string>();
-      const all = [...traded!, ...trending!, ...recent!].filter((x) => x.launchpad === "pump.fun" && !seen.has(x.id) && seen.add(x.id));
-      const onCurve = all.filter((x) => !x.graduatedPool);
-      const graduated = all.filter((x) => x.graduatedPool && Date.now() - ms(x.graduatedAt) < 3 * 3600_000);
-      const now = Date.now();
-      // on the curve: read each curve once, then subscribe
-      const keys = await Promise.all(onCurve.map(async (x) => [x, await bondingCurveAddress(x.id)] as const));
-      const curves = await this.rpc.accounts(keys.map(([, k]) => k)).catch(() => new Map<string, Uint8Array | null>());
-      for (const [x, key] of keys) {
-        const data = curves.get(key);
-        const c = data ? decodeCurve(data) : null;
-        if (!c || c.complete || !isStandardCurve(c)) continue;
-        const created = ms(x.createdAt) || ms(x.firstPool?.createdAt) || now;
-        const progress = curveProgress(c);
-        if (progress < STRETCH_ENTER && now - created > 60 * 60_000) continue; // stale and nowhere near graduating
-        const stage: Stage = progress >= STRETCH_ENTER ? "stretch" : "new";
-        this.addToken({ mint: x.id, symbol: x.symbol ?? short(x.id), name: x.name ?? "", createdAt: created, seenAt: now, source: "seed", stage, stageAt: now, curveKey: key, ...(x.dev ? { creator: x.dev } : {}) });
-        this.applyJup(x);
-        this.applyCurve(x.id, c);
-        this.seedFlow(x);
-        this.watchCurve(x.id, key);
-        if (created + 60 * 60_000 > now) this.openMarket(x.id, "grad-1h", created, created + 60 * 60_000);
-        if (stage === "stretch") this.openMarket(x.id, "grad-15m", now, now + 15 * 60_000);
-      }
-      for (const x of graduated) {
-        // a graduate that has since collapsed makes a meaningless question
-        if ((x.mcap ?? 0) < GRADUATED_MIN_MCAP_USD || (x.liquidity ?? 0) < GRADUATED_MIN_LIQUIDITY_USD) continue;
-        const at = ms(x.graduatedAt) || now;
-        this.addToken({ mint: x.id, symbol: x.symbol ?? short(x.id), name: x.name ?? "", createdAt: ms(x.createdAt) || at, seenAt: now, source: "seed", stage: "graduated", stageAt: at, graduatedAt: at, progress: 1, ...(x.dev ? { creator: x.dev } : {}) });
-        this.applyJup(x);
-      }
-      this.trim();
+      const list = await this.jup.list(kind, limit);
+      if (!Array.isArray(list)) throw new Error("not a list");
+      await this.seedFrom(list);
     } catch {
-      // the live streams fill the board on their own
+      // the live streams fill the board on their own meanwhile
+      if (attempt < 2 && this.started) setTimeout(() => void this.seedList(kind, limit, attempt + 1), 12_000);
     }
+  }
+
+  private async seedFrom(list: JupToken[]): Promise<void> {
+    const seen = new Set<string>();
+    const all = list.filter((x) => x.launchpad === "pump.fun" && !this.tokens.has(x.id) && !seen.has(x.id) && seen.add(x.id));
+    const onCurve = all.filter((x) => !x.graduatedPool);
+    const graduated = all.filter((x) => x.graduatedPool && Date.now() - ms(x.graduatedAt) < 3 * 3600_000);
+    const now = Date.now();
+    // on the curve: read each curve once, then subscribe
+    const keys = await Promise.all(onCurve.map(async (x) => [x, await bondingCurveAddress(x.id)] as const));
+    const curves = await this.rpc.accounts(keys.map(([, k]) => k)).catch(() => new Map<string, Uint8Array | null>());
+    for (const [x, key] of keys) {
+      const data = curves.get(key);
+      const c = data ? decodeCurve(data) : null;
+      if (!c || c.complete || !isStandardCurve(c)) continue;
+      const created = ms(x.createdAt) || ms(x.firstPool?.createdAt) || now;
+      const progress = curveProgress(c);
+      if (progress < STRETCH_ENTER && now - created > 60 * 60_000) continue; // stale and nowhere near graduating
+      const stage: Stage = progress >= STRETCH_ENTER ? "stretch" : "new";
+      this.addToken({ mint: x.id, symbol: x.symbol ?? short(x.id), name: x.name ?? "", createdAt: created, seenAt: now, source: "seed", stage, stageAt: now, curveKey: key, ...(x.dev ? { creator: x.dev } : {}) });
+      this.applyJup(x);
+      this.applyCurve(x.id, c);
+      this.seedFlow(x);
+      this.watchCurve(x.id, key);
+      if (created + 60 * 60_000 > now) this.openMarket(x.id, "grad-1h", created, created + 60 * 60_000);
+      if (stage === "stretch") this.openMarket(x.id, "grad-15m", now, now + 15 * 60_000);
+    }
+    for (const x of graduated) {
+      // a graduate that has since collapsed makes a meaningless question
+      if ((x.mcap ?? 0) < GRADUATED_MIN_MCAP_USD || (x.liquidity ?? 0) < GRADUATED_MIN_LIQUIDITY_USD) continue;
+      const at = ms(x.graduatedAt) || now;
+      this.addToken({ mint: x.id, symbol: x.symbol ?? short(x.id), name: x.name ?? "", createdAt: ms(x.createdAt) || at, seenAt: now, source: "seed", stage: "graduated", stageAt: at, graduatedAt: at, progress: 1, ...(x.dev ? { creator: x.dev } : {}) });
+      this.applyJup(x);
+    }
+    this.trim();
   }
 
   /** Seed a curve's flow from Jupiter's 5-minute volumes so the first estimate isn't blind. */
