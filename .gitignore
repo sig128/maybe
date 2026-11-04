@@ -21,3 +21,4 @@ apps/web/e2e/.output/
 !programs/keys/localnet/*.json
 apps/web/e2e-*.log
 apps/web/e2e/.axe-scan.cjs
+dist-preview/

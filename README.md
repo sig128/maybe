@@ -15,6 +15,7 @@ pnpm install
 
 # 1. the app in simulation mode (everything in the browser)
 pnpm dev                       # http://127.0.0.1:5173
+pnpm --filter @maybe/web build:preview   # one self-contained HTML file of the simulation (hash routes, fonts inlined)
 
 # 2. the full local stack: validator + Postgres + API/worker + web, one command
 docker compose up -d db        # or any local Postgres with role maybe / maybe-local-dev

@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, createHashRouter } from "react-router";
 import { Shell } from "./Shell.tsx";
 import { Overview } from "../pages/Overview.tsx";
 import { Discover, MarketPage } from "../pages/Discover.tsx";
@@ -13,7 +13,10 @@ import { Activity } from "../pages/Activity.tsx";
 import { NotFound, Ops, Settings } from "../pages/System.tsx";
 import { RouteError } from "./RouteError.tsx";
 
-export const router = createBrowserRouter([
+// static hosts without SPA fallbacks (e.g. a hosted preview) build with VITE_HASH_ROUTER=1
+const createRouter = import.meta.env.VITE_HASH_ROUTER === "1" ? createHashRouter : createBrowserRouter;
+
+export const router = createRouter([
   {
     path: "/",
     element: <Shell />,

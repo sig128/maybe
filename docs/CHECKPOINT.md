@@ -34,6 +34,18 @@ Toolchain notes: Solana CLI lives at `/opt/solana/solana-release/bin` (scripts a
 
 See `docs/DECISIONS.md`.
 
+## Evidence
+
+- `docs/evidence/e2e-chain.md` — last end-to-end run (33 steps)
+- `docs/evidence/localnet-ui/` — the web app driven against the local validator
+- `docs/QA.md` — browser QA, accessibility, responsiveness, visual critique passes
+
 ## Remaining
 
-Tracked in `docs/FEATURE_MATRIX.md` under "deferred" and "externally blocked".
+Tracked in `docs/FEATURE_MATRIX.md` under "deferred" and "externally blocked". The largest open items:
+
+1. Wallet Standard adapter (Phantom, Backpack…) for devnet; the local dev wallet only works on localnet.
+2. Production route adapters (Jupiter `/build`, PumpSwap) — need mainnet RPC and API access.
+3. A production attestor set and a devnet address book/setup script.
+4. Live-validator coverage of time-dependent paths (delays, schedules, vetoes) via clock warps.
+5. Rent reclaim for closed strategies; upgrade-authority policy; audit.
